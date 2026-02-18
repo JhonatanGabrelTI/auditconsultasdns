@@ -29,3 +29,12 @@
 
 ## Finalização
 - [ ] Criar checkpoint com integração completa
+
+
+## Correções de Parâmetros das APIs
+- [x] Corrigir URL e parâmetros da API FGTS (Caixa)
+- [x] Corrigir URL e parâmetros da API CND Federal (PGFN)
+- [x] Corrigir URL e parâmetros da API CND Estadual (SEFAZ PR)
+- [x] Adicionar suporte para CPF na consulta PGFN
+- [x] Adicionar campo de data de nascimento para CPF
+- [ ] Testar correções com dados reais

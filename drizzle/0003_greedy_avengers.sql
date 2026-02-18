@@ -1,0 +1,1 @@
+ALTER TABLE `clients` ADD `dataNascimento` varchar(10);

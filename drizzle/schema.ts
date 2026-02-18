@@ -41,6 +41,7 @@ export const clients = mysqlTable("clients", {
     "isento"
   ]),
   inscricaoEstadual: varchar("inscricaoEstadual", { length: 50 }),
+  dataNascimento: varchar("dataNascimento", { length: 10 }), // formato: aaaa-mm-dd (para Pessoa Física)
   
   // Contatos (armazenados como JSON)
   emails: text("emails"), // JSON array de emails

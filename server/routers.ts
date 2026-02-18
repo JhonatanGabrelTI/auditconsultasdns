@@ -423,14 +423,14 @@ export const appRouter = router({
           throw new Error("Cliente não encontrado");
         }
 
-        if (client.personType !== "juridica") {
-          throw new Error("CND Federal disponível apenas para Pessoa Jurídica");
-        }
-
         const { consultarCNDFederal } = await import("./infosimples");
         
         try {
-          const resultado = await consultarCNDFederal(client.cnpjCpf);
+          // Passa data de nascimento se for Pessoa Física
+          const resultado = await consultarCNDFederal(
+            client.cnpjCpf,
+            client.personType === "fisica" && client.dataNascimento ? client.dataNascimento : undefined
+          );
           
           // Salvar consulta no banco
           await db.createApiConsulta({

@@ -48,24 +48,45 @@ export interface RegularidadeFGTSResponse {
 
 /**
  * Consulta CND Federal (PGFN) via InfoSimples
+ * Suporta CNPJ ou CPF (com data de nascimento)
  */
-export async function consultarCNDFederal(cnpj: string): Promise<CNDFederalResponse> {
+export async function consultarCNDFederal(
+  documento: string,
+  dataNascimento?: string,
+  preferenciaEmissao: "nova" | "2via" = "nova"
+): Promise<CNDFederalResponse> {
   if (!INFOSIMPLES_API_TOKEN) {
     throw new Error("InfoSimples API token not configured");
   }
 
+  const documentoLimpo = documento.replace(/\D/g, "");
+  const isCPF = documentoLimpo.length === 11;
+
+  if (isCPF && !dataNascimento) {
+    throw new Error("Data de nascimento é obrigatória para consulta com CPF");
+  }
+
   try {
+    const payload: any = {
+      token: INFOSIMPLES_API_TOKEN,
+      preferencia_emissao: preferenciaEmissao,
+    };
+
+    if (isCPF) {
+      payload.cpf = documentoLimpo;
+      payload.birthdate = dataNascimento; // formato: aaaa-mm-dd
+    } else {
+      payload.cnpj = documentoLimpo;
+    }
+
     const response = await axios.post(
-      `${BASE_URL}/receita-federal/pgfn/nova`,
-      {
-        cnpj: cnpj.replace(/\D/g, ""), // Remove formatação
-        token: INFOSIMPLES_API_TOKEN,
-      },
+      `${BASE_URL}/receita-federal/pgfn`,
+      payload,
       {
         headers: {
           "Content-Type": "application/json",
         },
-        timeout: 30000, // 30 segundos
+        timeout: 30000,
       }
     );
 
@@ -88,13 +109,18 @@ export async function consultarCNDEstadual(
   }
 
   try {
+    const payload: any = {
+      token: INFOSIMPLES_API_TOKEN,
+      ie: inscricaoEstadual,
+    };
+
+    if (cnpj) {
+      payload.cnpj = cnpj.replace(/\D/g, "");
+    }
+
     const response = await axios.post(
-      `${BASE_URL}/sefaz/pr/certidao-debitos`,
-      {
-        inscricao_estadual: inscricaoEstadual,
-        cnpj: cnpj ? cnpj.replace(/\D/g, "") : undefined,
-        token: INFOSIMPLES_API_TOKEN,
-      },
+      `${BASE_URL}/sefaz/pr`,
+      payload,
       {
         headers: {
           "Content-Type": "application/json",
