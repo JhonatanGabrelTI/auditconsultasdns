@@ -1,6 +1,11 @@
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -21,7 +26,7 @@ import {
 } from "@/components/ui/sidebar";
 import { getLoginUrl } from "@/const";
 import { useIsMobile } from "@/hooks/useMobile";
-import { LayoutDashboard, LogOut, PanelLeft, Users, Activity, Shield, FileText, Bell, Calendar, Settings } from "lucide-react";
+import { LayoutDashboard, LogOut, PanelLeft, Users, Activity, Shield, FileText, Bell, Calendar, Settings, Building2, ChevronDown } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { DashboardLayoutSkeleton } from './DashboardLayoutSkeleton';
@@ -29,12 +34,29 @@ import { Button } from "./ui/button";
 
 const menuItems = [
   { icon: LayoutDashboard, label: "Dashboard Geral", path: "/" },
-  { icon: Activity, label: "MonitorHub", path: "/monitor" },
+  {
+    icon: Activity,
+    label: "Consult",
+    path: "/monitor",
+    subItems: [
+      { label: "Dashboard", path: "/monitor" },
+      { label: "Simples Nacional | MEI", path: "/monitor/simples-nacional" },
+      { label: "DCTFWeb", path: "/monitor/dctfweb" },
+      { label: "FGTS Digital", path: "/fgts-digital" },
+      { label: "Parcelamentos", path: "/monitor/parcelamentos" },
+      { label: "Situação Fiscal", path: "/monitor/situacao-fiscal" },
+      { label: "Caixas Postais", path: "/monitor/caixas-postais" },
+      { label: "Declarações", path: "/monitor/declaracoes" },
+    ]
+  },
   { icon: Users, label: "Clientes", path: "/clientes" },
   { icon: Shield, label: "Certificados", path: "/certificados" },
   { icon: FileText, label: "Procurações", path: "/procuracoes" },
   { icon: Bell, label: "Notificações", path: "/notificacoes" },
   { icon: Calendar, label: "Agendamentos", path: "/agendamentos" },
+  { icon: FileText, label: "Processos Fiscais", path: "/processos-fiscais" },
+  { icon: Shield, label: "Consultas CNDs", path: "/consultas-massa" },
+  { icon: Users, label: "Equipe", path: "/equipe" },
   { icon: Settings, label: "Configurações", path: "/configuracoes" },
 ];
 
@@ -121,6 +143,9 @@ function DashboardLayoutContent({
   const activeMenuItem = menuItems.find(item => item.path === location);
   const isMobile = useIsMobile();
 
+  console.log("[DashboardLayout] User State:", user);
+
+
   useEffect(() => {
     if (isCollapsed) {
       setIsResizing(false);
@@ -177,10 +202,7 @@ function DashboardLayoutContent({
               {!isCollapsed ? (
                 <div className="flex items-center gap-2 min-w-0">
                   <div className="flex items-center gap-2">
-                    <Activity className="h-5 w-5 text-primary shrink-0" />
-                    <span className="font-semibold tracking-tight truncate">
-                      MonitorHub
-                    </span>
+                    <img src="/logo.png" alt="Audit" className="h-8 w-auto object-contain" />
                   </div>
                 </div>
               ) : null}
@@ -190,14 +212,80 @@ function DashboardLayoutContent({
           <SidebarContent className="gap-0">
             <SidebarMenu className="px-2 py-1">
               {menuItems.map(item => {
-                const isActive = location === item.path;
+                const isActive = location === item.path || (item.subItems?.some(sub => location === sub.path));
+
+                // Se tem subitens, renderiza como Collapsible
+                if (item.subItems && !isCollapsed) {
+                  const isOpen = isActive || location.startsWith('/monitor') || location === '/fgts-digital';
+                  return (
+                    <Collapsible key={item.path} defaultOpen={isOpen}>
+                      <SidebarMenuItem>
+                        <CollapsibleTrigger asChild>
+                          <SidebarMenuButton
+                            isActive={isActive}
+                            tooltip={item.label}
+                            className="h-10 transition-all font-normal justify-between"
+                          >
+                            <div className="flex items-center gap-2">
+                              <item.icon
+                                className={`h-4 w-4 ${isActive ? "text-primary" : ""}`}
+                              />
+                              <span>{item.label}</span>
+                            </div>
+                            <ChevronDown className="h-4 w-4 transition-transform group-data-[state=open]/collapsible:rotate-180" />
+                          </SidebarMenuButton>
+                        </CollapsibleTrigger>
+                      </SidebarMenuItem>
+                      <CollapsibleContent>
+                        <div className="ml-4 pl-4 border-l border-border/50 space-y-1 py-1">
+                          {item.subItems.map(subItem => {
+                            const isSubActive = location === subItem.path;
+                            return (
+                              <button
+                                key={subItem.path}
+                                onClick={() => setLocation(subItem.path)}
+                                className={`w-full text-left px-3 py-2 rounded-md text-sm transition-colors ${isSubActive
+                                  ? "bg-primary/10 text-primary font-medium"
+                                  : "text-muted-foreground hover:bg-accent hover:text-foreground"
+                                  }`}
+                              >
+                                {subItem.label}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </CollapsibleContent>
+                    </Collapsible>
+                  );
+                }
+
+                // Se está colapsado e tem subitens, comportamento normal
+                if (item.subItems && isCollapsed) {
+                  return (
+                    <SidebarMenuItem key={item.path}>
+                      <SidebarMenuButton
+                        isActive={isActive}
+                        onClick={() => setLocation(item.path)}
+                        tooltip={item.label}
+                        className="h-10 transition-all font-normal"
+                      >
+                        <item.icon
+                          className={`h-4 w-4 ${isActive ? "text-primary" : ""}`}
+                        />
+                        <span>{item.label}</span>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  );
+                }
+
+                // Item normal sem subitens
                 return (
                   <SidebarMenuItem key={item.path}>
                     <SidebarMenuButton
                       isActive={isActive}
                       onClick={() => setLocation(item.path)}
                       tooltip={item.label}
-                      className={`h-10 transition-all font-normal`}
+                      className="h-10 transition-all font-normal"
                     >
                       <item.icon
                         className={`h-4 w-4 ${isActive ? "text-primary" : ""}`}
@@ -216,7 +304,7 @@ function DashboardLayoutContent({
                 <button className="flex items-center gap-3 rounded-lg px-1 py-1 hover:bg-accent/50 transition-colors w-full text-left group-data-[collapsible=icon]:justify-center focus:outline-none focus-visible:ring-2 focus-visible:ring-ring">
                   <Avatar className="h-9 w-9 border shrink-0">
                     <AvatarFallback className="text-xs font-medium">
-                      {user?.name?.charAt(0).toUpperCase()}
+                      {user?.name?.charAt(0)?.toUpperCase()}
                     </AvatarFallback>
                   </Avatar>
                   <div className="flex-1 min-w-0 group-data-[collapsible=icon]:hidden">

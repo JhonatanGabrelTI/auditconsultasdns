@@ -1,53 +1,68 @@
 import { eq, and, like, or, desc, sql } from "drizzle-orm";
-import { drizzle } from "drizzle-orm/mysql2";
-import { 
-  InsertUser, 
-  users, 
-  clients, 
-  InsertClient,
-  Client,
+import { drizzle } from "drizzle-orm/postgres-js";
+import postgres from "postgres";
+
+import {
+  users,
+  companies,
   digitalCertificates,
-  InsertDigitalCertificate,
-  DigitalCertificate,
   procuracoes,
-  InsertProcuracao,
-  Procuracao,
   fiscalProcesses,
-  InsertFiscalProcess,
-  FiscalProcess,
   declarations,
-  InsertDeclaration,
-  Declaration,
   rbt12Sublimits,
-  InsertRbt12Sublimit,
-  Rbt12Sublimit,
   ecacMessages,
-  InsertEcacMessage,
-  EcacMessage,
   notifications,
-  InsertNotification,
-  Notification,
   fiscalReports,
-  InsertFiscalReport,
-  FiscalReport,
   settings,
-  InsertSettings,
-  Settings,
   schedules,
-  InsertSchedule,
-  Schedule,
   apiConsultas,
-  InsertApiConsulta,
-  ApiConsulta
+  executionLogs,
+  pendencies
 } from "../drizzle/schema";
 import { ENV } from './_core/env';
 
+// Types inferred from schema
+type InsertUser = typeof users.$inferInsert;
+type InsertCompany = typeof companies.$inferInsert;
+type Company = typeof companies.$inferSelect;
+type InsertDigitalCertificate = typeof digitalCertificates.$inferInsert;
+type DigitalCertificate = typeof digitalCertificates.$inferSelect;
+type InsertProcuracao = typeof procuracoes.$inferInsert;
+type Procuracao = typeof procuracoes.$inferSelect;
+type InsertFiscalProcess = typeof fiscalProcesses.$inferInsert;
+type FiscalProcess = typeof fiscalProcesses.$inferSelect;
+type InsertDeclaration = typeof declarations.$inferInsert;
+type Declaration = typeof declarations.$inferSelect;
+type InsertRbt12Sublimit = typeof rbt12Sublimits.$inferInsert;
+type Rbt12Sublimit = typeof rbt12Sublimits.$inferSelect;
+type InsertEcacMessage = typeof ecacMessages.$inferInsert;
+type EcacMessage = typeof ecacMessages.$inferSelect;
+type InsertNotification = typeof notifications.$inferInsert;
+type Notification = typeof notifications.$inferSelect;
+type InsertFiscalReport = typeof fiscalReports.$inferInsert;
+type FiscalReport = typeof fiscalReports.$inferSelect;
+type InsertSettings = typeof settings.$inferInsert;
+type Settings = typeof settings.$inferSelect;
+type InsertSchedule = typeof schedules.$inferInsert;
+type Schedule = typeof schedules.$inferSelect;
+type InsertApiConsulta = typeof apiConsultas.$inferInsert;
+type ApiConsulta = typeof apiConsultas.$inferSelect;
+type InsertExecutionLog = typeof executionLogs.$inferInsert;
+type ExecutionLog = typeof executionLogs.$inferSelect;
+type InsertPendency = typeof pendencies.$inferInsert;
+type Pendency = typeof pendencies.$inferSelect;
+
 let _db: ReturnType<typeof drizzle> | null = null;
+let _client: postgres.Sql | null = null;
 
 export async function getDb() {
   if (!_db && process.env.DATABASE_URL) {
     try {
-      _db = drizzle(process.env.DATABASE_URL);
+      _client = postgres(process.env.DATABASE_URL, {
+        prepare: false, // Importante para Supabase
+        ssl: 'require', // Supabase requer SSL
+      });
+      _db = drizzle(_client);
     } catch (error) {
       console.warn("[Database] Failed to connect:", error);
       _db = null;
@@ -82,7 +97,7 @@ export async function upsertUser(user: InsertUser): Promise<void> {
       const value = user[field];
       if (value === undefined) return;
       const normalized = value ?? null;
-      values[field] = normalized;
+      (values as any)[field] = normalized;
       updateSet[field] = normalized;
     };
 
@@ -108,7 +123,8 @@ export async function upsertUser(user: InsertUser): Promise<void> {
       updateSet.lastSignedIn = new Date();
     }
 
-    await db.insert(users).values(values).onDuplicateKeyUpdate({
+    await db.insert(users).values(values).onConflictDoUpdate({
+      target: users.openId,
       set: updateSet,
     });
   } catch (error) {
@@ -128,74 +144,104 @@ export async function getUserByOpenId(openId: string) {
   return result.length > 0 ? result[0] : undefined;
 }
 
-// ==================== CLIENT OPERATIONS ====================
+// ==================== COMPANY OPERATIONS ====================
 
-export async function createClient(client: InsertClient) {
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
-
-  const result = await db.insert(clients).values(client);
-  return result;
+function generateUUID(): string {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+    const r = Math.random() * 16 | 0;
+    const v = c === 'x' ? r : (r & 0x3 | 0x8);
+    return v.toString(16);
+  });
 }
 
-export async function getClientsByUserId(userId: number) {
+export async function createCompany(company: InsertCompany) {
+  const db = await getDb();
+  if (!db) {
+    console.error("[Database] Connection not available");
+    throw new Error("Database connection not available. Please check your DATABASE_URL configuration.");
+  }
+
+  try {
+    // Gerar UUID explicitamente
+    const id = generateUUID();
+    
+    // Garantir que emails e whatsapps sejam arrays
+    const data = {
+      id,
+      ...company,
+      emails: Array.isArray(company.emails) ? company.emails : [],
+      whatsapps: Array.isArray(company.whatsapps) ? company.whatsapps : [],
+    };
+
+    console.log("[Database] Inserting company with ID:", id);
+    const result = await db.insert(companies).values(data as any).returning();
+    console.log("[Database] Insert successful:", result[0]?.id);
+    return result[0];
+  } catch (error: any) {
+    console.error("[Database] Insert error:", error);
+    console.error("[Database] Error details:", error.detail, error.hint, error.code);
+    throw new Error("Failed query: " + (error.detail || error.message));
+  }
+}
+
+export async function getCompaniesByUserId(userId: number) {
   const db = await getDb();
   if (!db) return [];
 
-  return await db.select().from(clients).where(eq(clients.userId, userId)).orderBy(desc(clients.createdAt));
+  return await db.select().from(companies).where(eq(companies.userId, userId)).orderBy(desc(companies.createdAt));
 }
 
-export async function getClientById(id: number) {
+export async function getCompanyById(id: string) {
   const db = await getDb();
   if (!db) return undefined;
 
-  const result = await db.select().from(clients).where(eq(clients.id, id)).limit(1);
+  const result = await db.select().from(companies).where(eq(companies.id, id)).limit(1);
   return result.length > 0 ? result[0] : undefined;
 }
 
-export async function updateClient(id: number, data: Partial<InsertClient>) {
+export async function updateCompany(id: string, data: Partial<InsertCompany>) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
-  return await db.update(clients).set(data).where(eq(clients.id, id));
+  return await db.update(companies).set(data).where(eq(companies.id, id));
 }
 
-export async function deleteClient(id: number) {
+export async function deleteCompany(id: string) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
-  return await db.delete(clients).where(eq(clients.id, id));
+  return await db.delete(companies).where(eq(companies.id, id));
 }
 
-export async function searchClients(userId: number, searchTerm?: string, filters?: {
-  regimeTributario?: string;
+export async function searchCompanies(userId: number, searchTerm?: string, filters?: {
+  taxRegime?: string;
   personType?: string;
 }) {
   const db = await getDb();
   if (!db) return [];
 
-  let query = db.select().from(clients).where(eq(clients.userId, userId));
+  let query = db.select().from(companies).where(eq(companies.userId, userId));
 
-  const conditions = [eq(clients.userId, userId)];
+  const conditions = [eq(companies.userId, userId)];
 
   if (searchTerm) {
     conditions.push(
       or(
-        like(clients.razaoSocialNome, `%${searchTerm}%`),
-        like(clients.cnpjCpf, `%${searchTerm}%`)
+        like(companies.name, `%${searchTerm}%`),
+        like(companies.cnpj, `%${searchTerm}%`)
       )!
     );
   }
 
-  if (filters?.regimeTributario) {
-    conditions.push(eq(clients.regimeTributario, filters.regimeTributario as any));
+  if (filters?.taxRegime) {
+    conditions.push(eq(companies.taxRegime, filters.taxRegime as any));
   }
 
   if (filters?.personType) {
-    conditions.push(eq(clients.personType, filters.personType as any));
+    conditions.push(eq(companies.personType, filters.personType as any));
   }
 
-  return await db.select().from(clients).where(and(...conditions)).orderBy(desc(clients.createdAt));
+  return await db.select().from(companies).where(and(...conditions)).orderBy(desc(companies.createdAt));
 }
 
 // ==================== DIGITAL CERTIFICATE OPERATIONS ====================
@@ -207,11 +253,11 @@ export async function createDigitalCertificate(certificate: InsertDigitalCertifi
   return await db.insert(digitalCertificates).values(certificate);
 }
 
-export async function getDigitalCertificatesByClientId(clientId: number) {
+export async function getDigitalCertificatesByCompanyId(companyId: string) {
   const db = await getDb();
   if (!db) return [];
 
-  return await db.select().from(digitalCertificates).where(eq(digitalCertificates.clientId, clientId));
+  return await db.select().from(digitalCertificates).where(eq(digitalCertificates.companyId, companyId));
 }
 
 export async function updateDigitalCertificate(id: number, data: Partial<InsertDigitalCertificate>) {
@@ -230,11 +276,11 @@ export async function createProcuracao(procuracao: InsertProcuracao) {
   return await db.insert(procuracoes).values(procuracao);
 }
 
-export async function getProcuracoesByClientId(clientId: number) {
+export async function getProcuracoesByCompanyId(companyId: string) {
   const db = await getDb();
   if (!db) return [];
 
-  return await db.select().from(procuracoes).where(eq(procuracoes.clientId, clientId));
+  return await db.select().from(procuracoes).where(eq(procuracoes.companyId, companyId));
 }
 
 export async function updateProcuracao(id: number, data: Partial<InsertProcuracao>) {
@@ -253,27 +299,26 @@ export async function createFiscalProcess(process: InsertFiscalProcess) {
   return await db.insert(fiscalProcesses).values(process);
 }
 
-export async function getFiscalProcessesByClientId(clientId: number) {
+export async function getFiscalProcessesByCompanyId(companyId: string) {
   const db = await getDb();
   if (!db) return [];
 
-  return await db.select().from(fiscalProcesses).where(eq(fiscalProcesses.clientId, clientId)).orderBy(desc(fiscalProcesses.createdAt));
+  return await db.select().from(fiscalProcesses).where(eq(fiscalProcesses.companyId, companyId)).orderBy(desc(fiscalProcesses.createdAt));
 }
 
 export async function getFiscalProcessesByType(userId: number, processType: string) {
   const db = await getDb();
   if (!db) return [];
 
-  // Join com clients para filtrar por userId
   return await db
     .select({
       process: fiscalProcesses,
-      client: clients
+      company: companies
     })
     .from(fiscalProcesses)
-    .innerJoin(clients, eq(fiscalProcesses.clientId, clients.id))
+    .innerJoin(companies, eq(fiscalProcesses.companyId, companies.id))
     .where(and(
-      eq(clients.userId, userId),
+      eq(companies.userId, userId),
       eq(fiscalProcesses.processType, processType as any)
     ))
     .orderBy(desc(fiscalProcesses.createdAt));
@@ -296,8 +341,8 @@ export async function getFiscalProcessStats(userId: number) {
       count: sql<number>`count(*)`.as('count')
     })
     .from(fiscalProcesses)
-    .innerJoin(clients, eq(fiscalProcesses.clientId, clients.id))
-    .where(eq(clients.userId, userId))
+    .innerJoin(companies, eq(fiscalProcesses.companyId, companies.id))
+    .where(eq(companies.userId, userId))
     .groupBy(fiscalProcesses.status);
 
   const stats = { emDia: 0, pendente: 0, atencao: 0 };
@@ -319,11 +364,11 @@ export async function createDeclaration(declaration: InsertDeclaration) {
   return await db.insert(declarations).values(declaration);
 }
 
-export async function getDeclarationsByClientId(clientId: number) {
+export async function getDeclarationsByCompanyId(companyId: string) {
   const db = await getDb();
   if (!db) return [];
 
-  return await db.select().from(declarations).where(eq(declarations.clientId, clientId)).orderBy(desc(declarations.createdAt));
+  return await db.select().from(declarations).where(eq(declarations.companyId, companyId)).orderBy(desc(declarations.createdAt));
 }
 
 export async function getDeclarationsByType(userId: number, declarationType: string) {
@@ -333,12 +378,12 @@ export async function getDeclarationsByType(userId: number, declarationType: str
   return await db
     .select({
       declaration: declarations,
-      client: clients
+      company: companies
     })
     .from(declarations)
-    .innerJoin(clients, eq(declarations.clientId, clients.id))
+    .innerJoin(companies, eq(declarations.companyId, companies.id))
     .where(and(
-      eq(clients.userId, userId),
+      eq(companies.userId, userId),
       eq(declarations.declarationType, declarationType as any)
     ))
     .orderBy(desc(declarations.createdAt));
@@ -361,9 +406,9 @@ export async function getDeclarationStats(userId: number, declarationType: strin
       count: sql<number>`count(*)`.as('count')
     })
     .from(declarations)
-    .innerJoin(clients, eq(declarations.clientId, clients.id))
+    .innerJoin(companies, eq(declarations.companyId, companies.id))
     .where(and(
-      eq(clients.userId, userId),
+      eq(companies.userId, userId),
       eq(declarations.declarationType, declarationType as any)
     ))
     .groupBy(declarations.declared);
@@ -395,11 +440,11 @@ export async function getRbt12SublimitsByUserId(userId: number, limit: number = 
   return await db
     .select({
       sublimit: rbt12Sublimits,
-      client: clients
+      company: companies
     })
     .from(rbt12Sublimits)
-    .innerJoin(clients, eq(rbt12Sublimits.clientId, clients.id))
-    .where(eq(clients.userId, userId))
+    .innerJoin(companies, eq(rbt12Sublimits.companyId, companies.id))
+    .where(eq(companies.userId, userId))
     .orderBy(desc(rbt12Sublimits.rbt12Value))
     .limit(limit);
 }
@@ -420,11 +465,11 @@ export async function getEcacMessagesByUserId(userId: number) {
   return await db
     .select({
       message: ecacMessages,
-      client: clients
+      company: companies
     })
     .from(ecacMessages)
-    .innerJoin(clients, eq(ecacMessages.clientId, clients.id))
-    .where(eq(clients.userId, userId))
+    .innerJoin(companies, eq(ecacMessages.companyId, companies.id))
+    .where(eq(companies.userId, userId))
     .orderBy(desc(ecacMessages.messageDate));
 }
 
@@ -494,12 +539,12 @@ export async function getFiscalReportsByUserId(userId: number) {
   return await db
     .select({
       report: fiscalReports,
-      client: clients
+      company: companies
     })
     .from(fiscalReports)
-    .innerJoin(clients, eq(fiscalReports.clientId, clients.id))
-    .where(eq(clients.userId, userId))
-    .orderBy(desc(fiscalReports.createdAt));
+    .innerJoin(companies, eq(fiscalReports.companyId, companies.id))
+    .where(eq(companies.userId, userId))
+    .orderBy(desc(fiscalReports.generatedAt));
 }
 
 // ==================== SETTINGS OPERATIONS ====================
@@ -555,19 +600,24 @@ export async function deleteSchedule(id: number) {
   return await db.delete(schedules).where(eq(schedules.id, id));
 }
 
-
 // ==================== API CONSULTAS ====================
 
 export async function createApiConsulta(consulta: InsertApiConsulta): Promise<void> {
   const db = await getDb();
   if (!db) return;
-  await db.insert(apiConsultas).values(consulta);
+  try {
+    await db.insert(apiConsultas).values(consulta);
+  } catch (error: any) {
+    console.error("[Database] createApiConsulta error:", error);
+    console.error("[Database] Error detail:", error.detail, error.hint, error.code);
+    throw new Error(`Failed to save consulta: ${error.detail || error.message}`);
+  }
 }
 
-export async function getApiConsultasByClient(clientId: number): Promise<ApiConsulta[]> {
+export async function getApiConsultasByCompany(companyId: string): Promise<ApiConsulta[]> {
   const db = await getDb();
   if (!db) return [];
-  return await db.select().from(apiConsultas).where(eq(apiConsultas.clientId, clientId)).orderBy(desc(apiConsultas.createdAt));
+  return await db.select().from(apiConsultas).where(eq(apiConsultas.companyId, companyId)).orderBy(desc(apiConsultas.createdAt));
 }
 
 export async function getApiConsultasByUser(userId: number): Promise<ApiConsulta[]> {
@@ -577,7 +627,7 @@ export async function getApiConsultasByUser(userId: number): Promise<ApiConsulta
 }
 
 export async function getLatestApiConsulta(
-  clientId: number,
+  companyId: string,
   tipoConsulta: "cnd_federal" | "cnd_estadual" | "regularidade_fgts"
 ): Promise<ApiConsulta | undefined> {
   const db = await getDb();
@@ -585,8 +635,36 @@ export async function getLatestApiConsulta(
   const results = await db
     .select()
     .from(apiConsultas)
-    .where(and(eq(apiConsultas.clientId, clientId), eq(apiConsultas.tipoConsulta, tipoConsulta)))
+    .where(and(eq(apiConsultas.companyId, companyId), eq(apiConsultas.tipoConsulta, tipoConsulta)))
     .orderBy(desc(apiConsultas.createdAt))
     .limit(1);
   return results[0];
+}
+
+// ==================== EXECUTION LOGS ====================
+
+export async function createExecutionLog(log: InsertExecutionLog): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db.insert(executionLogs).values(log);
+}
+
+export async function getExecutionLogsByCompanyId(companyId: string): Promise<ExecutionLog[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return await db.select().from(executionLogs).where(eq(executionLogs.companyId, companyId)).orderBy(desc(executionLogs.createdAt));
+}
+
+// ==================== PENDENCIES ====================
+
+export async function createPendency(pendency: InsertPendency): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db.insert(pendencies).values(pendency);
+}
+
+export async function getPendenciesByCompanyId(companyId: string): Promise<Pendency[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return await db.select().from(pendencies).where(eq(pendencies.companyId, companyId)).orderBy(desc(pendencies.detectedAt));
 }

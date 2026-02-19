@@ -17,6 +17,8 @@ export interface CNDFederalResponse {
     numero_certidao?: string;
     data_emissao?: string;
     data_validade?: string;
+    validade_fim_data?: string;
+    site_receipt?: string;
   };
 }
 
@@ -30,6 +32,8 @@ export interface CNDEstadualResponse {
     numero_certidao?: string;
     data_emissao?: string;
     data_validade?: string;
+    validade_fim_data?: string;
+    site_receipt?: string;
   };
 }
 
@@ -43,6 +47,8 @@ export interface RegularidadeFGTSResponse {
     numero_crf?: string;
     data_emissao?: string;
     data_validade?: string;
+    validade_fim_data?: string;
+    site_receipt?: string;
   };
 }
 
@@ -80,7 +86,7 @@ export async function consultarCNDFederal(
     }
 
     const response = await axios.post(
-      `${BASE_URL}/receita-federal/pgfn`,
+      `${BASE_URL}/receita-federal/pgfn/nova`,
       payload,
       {
         headers: {
@@ -163,6 +169,82 @@ export async function consultarRegularidadeFGTS(cnpj: string): Promise<Regularid
   } catch (error: any) {
     console.error("[InfoSimples] Erro ao consultar Regularidade FGTS:", error.message);
     throw new Error(`Erro ao consultar Regularidade FGTS: ${error.message}`);
+  }
+}
+
+/**
+ * Interface para resposta da Caixa Postal e-CAC
+ */
+export interface CaixaPostalECACResponse {
+  code: number;
+  code_message: string;
+  data?: {
+    situacao?: string;
+    cnpj?: string;
+    razao_social?: string;
+    total_mensagens?: number;
+    mensagens_nao_lidas?: number;
+    mensagens?: Array<{
+      id?: string;
+      tipo?: string;
+      titulo?: string;
+      conteudo?: string;
+      data_envio?: string;
+      data_recebimento?: string;
+      lida?: boolean;
+      prioridade?: string;
+    }>;
+  };
+}
+
+/**
+ * Consulta Caixa Postal e-CAC (DTE - Documentos e Tarefas Eletrônicas) via InfoSimples
+ * Retorna mensagens, intimações, autos de infração e avisos da caixa postal
+ */
+export async function consultarCaixaPostalECAC(
+  cnpj: string,
+  certificado?: string,
+  senha?: string
+): Promise<CaixaPostalECACResponse> {
+  if (!INFOSIMPLES_API_TOKEN) {
+    throw new Error("InfoSimples API token not configured");
+  }
+
+  const cnpjLimpo = cnpj.replace(/\D/g, "");
+
+  if (cnpjLimpo.length !== 14) {
+    throw new Error("CNPJ inválido. Deve conter 14 dígitos.");
+  }
+
+  try {
+    const payload: any = {
+      token: INFOSIMPLES_API_TOKEN,
+      cnpj: cnpjLimpo,
+    };
+
+    // Se tiver certificado digital para acesso ao e-CAC
+    if (certificado) {
+      payload.certificado = certificado;
+    }
+    if (senha) {
+      payload.senha = senha;
+    }
+
+    const response = await axios.post(
+      `${BASE_URL}/ecac/caixa-postal`,
+      payload,
+      {
+        headers: {
+          "Content-Type": "application/json",
+        },
+        timeout: 60000, // Timeout maior pois a consulta pode demorar
+      }
+    );
+
+    return response.data;
+  } catch (error: any) {
+    console.error("[InfoSimples] Erro ao consultar Caixa Postal e-CAC:", error.message);
+    throw new Error(`Erro ao consultar Caixa Postal e-CAC: ${error.message}`);
   }
 }
 

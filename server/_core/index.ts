@@ -28,13 +28,20 @@ async function findAvailablePort(startPort: number = 3000): Promise<number> {
 }
 
 async function startServer() {
+  console.log("[Server] Starting server...");
   const app = express();
   const server = createServer(app);
+
   // Configure body parser with larger size limit for file uploads
   app.use(express.json({ limit: "50mb" }));
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
+
+  console.log("[Server] Body parser configured");
+
   // OAuth callback under /api/oauth/callback
   registerOAuthRoutes(app);
+  console.log("[Server] OAuth routes registered");
+
   // tRPC API
   app.use(
     "/api/trpc",
@@ -43,22 +50,29 @@ async function startServer() {
       createContext,
     })
   );
+  console.log("[Server] tRPC middleware configured");
+
   // development mode uses Vite, production mode uses static files
-  if (process.env.NODE_ENV === "development") {
+  if (process.env.NODE_ENV?.trim() === "development") {
+    console.log("[Server] Setting up Vite (development mode)...");
     await setupVite(app, server);
+    console.log("[Server] Vite setup complete");
   } else {
+    console.log("[Server] Setting up static files (production mode)...");
     serveStatic(app);
   }
 
   const preferredPort = parseInt(process.env.PORT || "3000");
+  console.log(`[Server] Checking port ${preferredPort}...`);
   const port = await findAvailablePort(preferredPort);
 
   if (port !== preferredPort) {
     console.log(`Port ${preferredPort} is busy, using port ${port} instead`);
   }
 
-  server.listen(port, () => {
+  server.listen(port, "0.0.0.0", () => {
     console.log(`Server running on http://localhost:${port}/`);
+    console.log(`Server also available on http://127.0.0.1:${port}/`);
   });
 }
 

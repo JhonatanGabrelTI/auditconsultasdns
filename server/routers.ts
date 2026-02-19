@@ -7,7 +7,7 @@ import * as db from "./db";
 
 export const appRouter = router({
   system: systemRouter,
-  
+
   auth: router({
     me: publicProcedure.query(opts => opts.ctx.user),
     logout: publicProcedure.mutation(({ ctx }) => {
@@ -17,83 +17,111 @@ export const appRouter = router({
     }),
   }),
 
-  // ==================== CLIENT ROUTES ====================
-  clients: router({
+  // ==================== COMPANY ROUTES (formerly CLIENT) ====================
+  // Renaming router to 'companies' is better, but 'clients' keeps frontend compatible for now? 
+  // No, I should break it to be clean. Frontend needs update anyway.
+  companies: router({ // Changed from clients
     list: protectedProcedure.query(async ({ ctx }) => {
-      return await db.getClientsByUserId(ctx.user.id);
+      return await db.getCompaniesByUserId(ctx.user.id);
     }),
 
     search: protectedProcedure
       .input(z.object({
         searchTerm: z.string().optional(),
-        regimeTributario: z.string().optional(),
+        taxRegime: z.string().optional(),
         personType: z.string().optional(),
       }))
       .query(async ({ ctx, input }) => {
-        return await db.searchClients(ctx.user.id, input.searchTerm, {
-          regimeTributario: input.regimeTributario,
+        return await db.searchCompanies(ctx.user.id, input.searchTerm, {
+          taxRegime: input.taxRegime,
           personType: input.personType,
         });
       }),
 
     getById: protectedProcedure
-      .input(z.object({ id: z.number() }))
+      .input(z.object({ id: z.string().uuid() }))
       .query(async ({ input }) => {
-        return await db.getClientById(input.id);
+        return await db.getCompanyById(input.id);
       }),
 
     create: protectedProcedure
       .input(z.object({
         personType: z.enum(["juridica", "fisica"]),
-        cnpjCpf: z.string(),
-        razaoSocialNome: z.string(),
-        regimeTributario: z.enum(["simples_nacional", "lucro_presumido", "lucro_real", "mei", "isento"]).optional(),
+        cnpj: z.string().optional(), // Made optional to match schema allow null
+        cpf: z.string().optional(),
+        name: z.string(),
+        taxRegime: z.enum(["simples_nacional", "lucro_presumido", "lucro_real", "mei", "isento"]).optional(),
         inscricaoEstadual: z.string().optional(),
-        emails: z.string().optional(), // JSON string
-        whatsapps: z.string().optional(), // JSON string
+        emails: z.any().optional(), // jsonb
+        whatsapps: z.any().optional(), // jsonb
+        // New fields
+        accessCode: z.string().optional(),
+        certificatePath: z.string().optional(),
+        certificatePasswordHash: z.string().optional(),
+        certificateExpiresAt: z.date().optional(),
       }))
       .mutation(async ({ ctx, input }) => {
-        return await db.createClient({
+        // Sanitize CNPJ and CPF
+        const sanitizedInput = {
           ...input,
+          cnpj: input.cnpj ? input.cnpj.replace(/\D/g, "") : undefined,
+          cpf: input.cpf ? input.cpf.replace(/\D/g, "") : undefined,
+        };
+
+        return await db.createCompany({
+          ...sanitizedInput,
           userId: ctx.user.id,
         });
       }),
 
     update: protectedProcedure
       .input(z.object({
-        id: z.number(),
+        id: z.string().uuid(),
         personType: z.enum(["juridica", "fisica"]).optional(),
-        cnpjCpf: z.string().optional(),
-        razaoSocialNome: z.string().optional(),
-        regimeTributario: z.enum(["simples_nacional", "lucro_presumido", "lucro_real", "mei", "isento"]).optional(),
+        cnpj: z.string().optional(),
+        cpf: z.string().optional(),
+        name: z.string().optional(),
+        taxRegime: z.enum(["simples_nacional", "lucro_presumido", "lucro_real", "mei", "isento"]).optional(),
         inscricaoEstadual: z.string().optional(),
-        emails: z.string().optional(),
-        whatsapps: z.string().optional(),
+        emails: z.any().optional(),
+        whatsapps: z.any().optional(),
         active: z.boolean().optional(),
+        accessCode: z.string().optional(),
+        certificatePath: z.string().optional(),
+        certificatePasswordHash: z.string().optional(),
+        certificateExpiresAt: z.date().optional(),
       }))
       .mutation(async ({ input }) => {
         const { id, ...data } = input;
-        return await db.updateClient(id, data);
+
+        // Sanitize CNPJ and CPF if present
+        const sanitizedData = {
+          ...data,
+          cnpj: data.cnpj ? data.cnpj.replace(/\D/g, "") : undefined,
+          cpf: data.cpf ? data.cpf.replace(/\D/g, "") : undefined,
+        };
+
+        return await db.updateCompany(id, sanitizedData);
       }),
 
     delete: protectedProcedure
-      .input(z.object({ id: z.number() }))
+      .input(z.object({ id: z.string().uuid() }))
       .mutation(async ({ input }) => {
-        return await db.deleteClient(input.id);
+        return await db.deleteCompany(input.id);
       }),
   }),
 
   // ==================== DIGITAL CERTIFICATE ROUTES ====================
   certificates: router({
-    listByClient: protectedProcedure
-      .input(z.object({ clientId: z.number() }))
+    listByCompany: protectedProcedure // Renamed from listByClient
+      .input(z.object({ companyId: z.string().uuid() }))
       .query(async ({ input }) => {
-        return await db.getDigitalCertificatesByClientId(input.clientId);
+        return await db.getDigitalCertificatesByCompanyId(input.companyId);
       }),
 
     create: protectedProcedure
       .input(z.object({
-        clientId: z.number(),
+        companyId: z.string().uuid(),
         certificateName: z.string().optional(),
         issuer: z.string().optional(),
         serialNumber: z.string().optional(),
@@ -107,7 +135,7 @@ export const appRouter = router({
 
     update: protectedProcedure
       .input(z.object({
-        id: z.number(),
+        id: z.number(), // This is still serial int
         certificateName: z.string().optional(),
         issuer: z.string().optional(),
         serialNumber: z.string().optional(),
@@ -123,15 +151,15 @@ export const appRouter = router({
 
   // ==================== PROCURACAO ROUTES ====================
   procuracoes: router({
-    listByClient: protectedProcedure
-      .input(z.object({ clientId: z.number() }))
+    listByCompany: protectedProcedure
+      .input(z.object({ companyId: z.string().uuid() }))
       .query(async ({ input }) => {
-        return await db.getProcuracoesByClientId(input.clientId);
+        return await db.getProcuracoesByCompanyId(input.companyId);
       }),
 
     create: protectedProcedure
       .input(z.object({
-        clientId: z.number(),
+        companyId: z.string().uuid(),
         tipo: z.string().optional(),
         numero: z.string().optional(),
         dataEmissao: z.date().optional(),
@@ -159,10 +187,10 @@ export const appRouter = router({
 
   // ==================== FISCAL PROCESS ROUTES ====================
   fiscalProcesses: router({
-    listByClient: protectedProcedure
-      .input(z.object({ clientId: z.number() }))
+    listByCompany: protectedProcedure
+      .input(z.object({ companyId: z.string().uuid() }))
       .query(async ({ input }) => {
-        return await db.getFiscalProcessesByClientId(input.clientId);
+        return await db.getFiscalProcessesByCompanyId(input.companyId);
       }),
 
     listByType: protectedProcedure
@@ -179,7 +207,7 @@ export const appRouter = router({
 
     create: protectedProcedure
       .input(z.object({
-        clientId: z.number(),
+        companyId: z.string().uuid(),
         processType: z.enum(["pgdas", "pgmei", "dctfweb", "fgts_digital", "parcelamentos", "certidoes", "caixas_postais", "defis", "dirf"]),
         referenceMonth: z.number().optional(),
         referenceYear: z.number(),
@@ -208,10 +236,10 @@ export const appRouter = router({
 
   // ==================== DECLARATION ROUTES ====================
   declarations: router({
-    listByClient: protectedProcedure
-      .input(z.object({ clientId: z.number() }))
+    listByCompany: protectedProcedure
+      .input(z.object({ companyId: z.string().uuid() }))
       .query(async ({ input }) => {
-        return await db.getDeclarationsByClientId(input.clientId);
+        return await db.getDeclarationsByCompanyId(input.companyId);
       }),
 
     listByType: protectedProcedure
@@ -232,7 +260,7 @@ export const appRouter = router({
 
     create: protectedProcedure
       .input(z.object({
-        clientId: z.number(),
+        companyId: z.string().uuid(),
         processId: z.number().optional(),
         declarationType: z.enum(["pgdas", "pgmei", "dctfweb", "fgts_digital", "defis", "dirf"]),
         referenceMonth: z.number().optional(),
@@ -268,7 +296,7 @@ export const appRouter = router({
 
     create: protectedProcedure
       .input(z.object({
-        clientId: z.number(),
+        companyId: z.string().uuid(),
         referenceYear: z.number(),
         rbt12Value: z.string().optional(), // decimal as string
         sublimitValue: z.string().optional(),
@@ -287,10 +315,12 @@ export const appRouter = router({
 
     create: protectedProcedure
       .input(z.object({
-        clientId: z.number(),
-        messageTitle: z.string(),
-        messageContent: z.string().optional(),
+        companyId: z.string().uuid(),
+        messageType: z.enum(["ecac", "simples_nacional", "fazenda"]),
+        subject: z.string(),
+        content: z.string().optional(),
         messageDate: z.date(),
+        read: z.boolean().optional(),
       }))
       .mutation(async ({ input }) => {
         return await db.createEcacMessage(input);
@@ -317,7 +347,7 @@ export const appRouter = router({
 
     create: protectedProcedure
       .input(z.object({
-        clientId: z.number().optional(),
+        companyId: z.string().uuid().optional(),
         title: z.string(),
         description: z.string().optional(),
         processType: z.string().optional(),
@@ -344,7 +374,7 @@ export const appRouter = router({
 
     create: protectedProcedure
       .input(z.object({
-        clientId: z.number(),
+        companyId: z.string().uuid(),
         reportType: z.string(),
         reportTitle: z.string(),
         reportContent: z.string().optional(),
@@ -415,32 +445,33 @@ export const appRouter = router({
   apiConsultas: router({
     consultarCNDFederal: protectedProcedure
       .input(z.object({
-        clientId: z.number(),
+        companyId: z.string().uuid(),
       }))
       .mutation(async ({ ctx, input }) => {
-        const client = await db.getClientById(input.clientId);
-        if (!client) {
-          throw new Error("Cliente não encontrado");
+        const company = await db.getCompanyById(input.companyId);
+        if (!company) {
+          throw new Error("Empresa não encontrada");
         }
 
         const { consultarCNDFederal } = await import("./infosimples");
-        
+
         try {
           // Passa data de nascimento se for Pessoa Física
           const resultado = await consultarCNDFederal(
-            client.cnpjCpf,
-            client.personType === "fisica" && client.dataNascimento ? client.dataNascimento : undefined
+            company.cnpj || company.cpf || "", // Handle cnpj/cpf
+            company.personType === "fisica" && company.dataNascimento ? company.dataNascimento : undefined
           );
-          
-          // Salvar consulta no banco
+
           await db.createApiConsulta({
-            clientId: input.clientId,
+            companyId: input.companyId,
             userId: ctx.user.id,
             tipoConsulta: "cnd_federal",
-            situacao: resultado.data?.situacao,
+            situacao: resultado.data?.situacao || resultado.code_message,
             numeroCertidao: resultado.data?.numero_certidao,
             dataEmissao: resultado.data?.data_emissao ? new Date(resultado.data.data_emissao) : undefined,
             dataValidade: resultado.data?.data_validade ? new Date(resultado.data.data_validade) : undefined,
+            validadeFim: resultado.data?.validade_fim_data ? new Date(resultado.data.validade_fim_data) : undefined,
+            siteReceipt: resultado.data?.site_receipt,
             respostaCompleta: JSON.stringify(resultado),
             sucesso: resultado.code === 200,
             mensagemErro: resultado.code !== 200 ? resultado.code_message : undefined,
@@ -455,9 +486,8 @@ export const appRouter = router({
             mensagem: resultado.code_message,
           };
         } catch (error: any) {
-          // Salvar erro no banco
           await db.createApiConsulta({
-            clientId: input.clientId,
+            companyId: input.companyId,
             userId: ctx.user.id,
             tipoConsulta: "cnd_federal",
             sucesso: false,
@@ -469,34 +499,36 @@ export const appRouter = router({
 
     consultarCNDEstadual: protectedProcedure
       .input(z.object({
-        clientId: z.number(),
+        companyId: z.string().uuid(),
       }))
       .mutation(async ({ ctx, input }) => {
-        const client = await db.getClientById(input.clientId);
-        if (!client) {
-          throw new Error("Cliente não encontrado");
+        const company = await db.getCompanyById(input.companyId);
+        if (!company) {
+          throw new Error("Empresa não encontrada");
         }
 
-        if (!client.inscricaoEstadual) {
-          throw new Error("Cliente não possui Inscrição Estadual cadastrada");
+        if (!company.inscricaoEstadual) {
+          throw new Error("Empresa não possui Inscrição Estadual cadastrada");
         }
 
         const { consultarCNDEstadual } = await import("./infosimples");
-        
+
         try {
           const resultado = await consultarCNDEstadual(
-            client.inscricaoEstadual,
-            client.personType === "juridica" ? client.cnpjCpf : undefined
+            company.inscricaoEstadual,
+            company.personType === "juridica" ? (company.cnpj || undefined) : undefined
           );
-          
+
           await db.createApiConsulta({
-            clientId: input.clientId,
+            companyId: input.companyId,
             userId: ctx.user.id,
             tipoConsulta: "cnd_estadual",
-            situacao: resultado.data?.situacao,
+            situacao: resultado.data?.situacao || resultado.code_message,
             numeroCertidao: resultado.data?.numero_certidao,
             dataEmissao: resultado.data?.data_emissao ? new Date(resultado.data.data_emissao) : undefined,
             dataValidade: resultado.data?.data_validade ? new Date(resultado.data.data_validade) : undefined,
+            validadeFim: resultado.data?.validade_fim_data ? new Date(resultado.data.validade_fim_data) : undefined,
+            siteReceipt: resultado.data?.site_receipt,
             respostaCompleta: JSON.stringify(resultado),
             sucesso: resultado.code === 200,
             mensagemErro: resultado.code !== 200 ? resultado.code_message : undefined,
@@ -508,11 +540,13 @@ export const appRouter = router({
             numeroCertidao: resultado.data?.numero_certidao,
             dataEmissao: resultado.data?.data_emissao,
             dataValidade: resultado.data?.data_validade,
+            validadeFim: resultado.data?.validade_fim_data,
+            siteReceipt: resultado.data?.site_receipt,
             mensagem: resultado.code_message,
           };
         } catch (error: any) {
           await db.createApiConsulta({
-            clientId: input.clientId,
+            companyId: input.companyId,
             userId: ctx.user.id,
             tipoConsulta: "cnd_estadual",
             sucesso: false,
@@ -524,31 +558,33 @@ export const appRouter = router({
 
     consultarRegularidadeFGTS: protectedProcedure
       .input(z.object({
-        clientId: z.number(),
+        companyId: z.string().uuid(),
       }))
       .mutation(async ({ ctx, input }) => {
-        const client = await db.getClientById(input.clientId);
-        if (!client) {
-          throw new Error("Cliente não encontrado");
+        const company = await db.getCompanyById(input.companyId);
+        if (!company) {
+          throw new Error("Empresa não encontrada");
         }
 
-        if (client.personType !== "juridica") {
+        if (company.personType !== "juridica") {
           throw new Error("Regularidade FGTS disponível apenas para Pessoa Jurídica");
         }
 
         const { consultarRegularidadeFGTS } = await import("./infosimples");
-        
+
         try {
-          const resultado = await consultarRegularidadeFGTS(client.cnpjCpf);
-          
+          const resultado = await consultarRegularidadeFGTS(company.cnpj || "");
+
           await db.createApiConsulta({
-            clientId: input.clientId,
+            companyId: input.companyId,
             userId: ctx.user.id,
             tipoConsulta: "regularidade_fgts",
-            situacao: resultado.data?.situacao,
+            situacao: resultado.data?.situacao || resultado.code_message,
             numeroCertidao: resultado.data?.numero_crf,
             dataEmissao: resultado.data?.data_emissao ? new Date(resultado.data.data_emissao) : undefined,
             dataValidade: resultado.data?.data_validade ? new Date(resultado.data.data_validade) : undefined,
+            validadeFim: resultado.data?.validade_fim_data ? new Date(resultado.data.validade_fim_data) : undefined,
+            siteReceipt: resultado.data?.site_receipt,
             respostaCompleta: JSON.stringify(resultado),
             sucesso: resultado.code === 200,
             mensagemErro: resultado.code !== 200 ? resultado.code_message : undefined,
@@ -560,11 +596,13 @@ export const appRouter = router({
             numeroCertidao: resultado.data?.numero_crf,
             dataEmissao: resultado.data?.data_emissao,
             dataValidade: resultado.data?.data_validade,
+            validadeFim: resultado.data?.validade_fim_data,
+            siteReceipt: resultado.data?.site_receipt,
             mensagem: resultado.code_message,
           };
         } catch (error: any) {
           await db.createApiConsulta({
-            clientId: input.clientId,
+            companyId: input.companyId,
             userId: ctx.user.id,
             tipoConsulta: "regularidade_fgts",
             sucesso: false,
@@ -574,17 +612,130 @@ export const appRouter = router({
         }
       }),
 
+    consultarCaixaPostalECAC: protectedProcedure
+      .input(z.object({
+        companyId: z.string().uuid(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const company = await db.getCompanyById(input.companyId);
+        if (!company) {
+          throw new Error("Empresa não encontrada");
+        }
+
+        if (company.personType !== "juridica") {
+          throw new Error("Consulta de Caixa Postal e-CAC disponível apenas para Pessoa Jurídica");
+        }
+
+        const { consultarCaixaPostalECAC } = await import("./infosimples");
+
+        try {
+          const resultado = await consultarCaixaPostalECAC(company.cnpj || "");
+
+          // Processa mensagens retornadas
+          const mensagens = resultado.data?.mensagens || [];
+          const totalMensagens = resultado.data?.total_mensagens || mensagens.length;
+          const mensagensNaoLidas = resultado.data?.mensagens_nao_lidas || mensagens.filter(m => !m.lida).length;
+
+          await db.createApiConsulta({
+            companyId: input.companyId,
+            userId: ctx.user.id,
+            tipoConsulta: "ecac_caixa_postal",
+            respostaCompleta: JSON.stringify(resultado),
+            sucesso: resultado.code === 200,
+            mensagemErro: resultado.code !== 200 ? resultado.code_message : undefined,
+          });
+
+          // Salva as mensagens no banco como ecacMessages
+          for (const msg of mensagens) {
+            await db.createEcacMessage({
+              companyId: input.companyId,
+              messageType: "ecac",
+              subject: msg.titulo || "Sem título",
+              content: msg.conteudo || "",
+              messageDate: msg.data_envio ? new Date(msg.data_envio) : new Date(),
+              read: msg.lida || false,
+            });
+          }
+
+          return {
+            sucesso: resultado.code === 200,
+            totalMensagens,
+            mensagensNaoLidas,
+            mensagens: mensagens.map(m => ({
+              id: m.id,
+              tipo: m.tipo,
+              titulo: m.titulo,
+              conteudo: m.conteudo,
+              dataEnvio: m.data_envio,
+              lida: m.lida,
+              prioridade: m.prioridade,
+            })),
+            mensagem: resultado.code_message,
+          };
+        } catch (error: any) {
+          await db.createApiConsulta({
+            companyId: input.companyId,
+            userId: ctx.user.id,
+            tipoConsulta: "ecac_caixa_postal",
+            sucesso: false,
+            mensagemErro: error.message,
+          });
+          throw error;
+        }
+      }),
+
     historico: protectedProcedure
       .input(z.object({
-        clientId: z.number(),
+        companyId: z.string().uuid(),
       }))
       .query(async ({ input }) => {
-        return await db.getApiConsultasByClient(input.clientId);
+        return await db.getApiConsultasByCompany(input.companyId);
       }),
 
     minhasConsultas: protectedProcedure.query(async ({ ctx }) => {
       return await db.getApiConsultasByUser(ctx.user.id);
     }),
+  }),
+
+  // ==================== EXECUTION LOGS ROUTES (New) ====================
+  executionLogs: router({
+    listByCompany: protectedProcedure
+      .input(z.object({ companyId: z.string().uuid() }))
+      .query(async ({ input }) => {
+        return await db.getExecutionLogsByCompanyId(input.companyId);
+      }),
+
+    create: protectedProcedure
+      .input(z.object({
+        companyId: z.string().uuid().optional(),
+        serviceType: z.enum(['ECAC', 'SIMPLES', 'FGTS']).optional(),
+        status: z.enum(['SUCCESS', 'ERROR', 'PENDING']).optional(),
+        resultSummary: z.any().optional(),
+        errorMessage: z.string().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        return await db.createExecutionLog(input);
+      }),
+  }),
+
+  // ==================== PENDENCIES ROUTES (New) ====================
+  pendencies: router({
+    listByCompany: protectedProcedure
+      .input(z.object({ companyId: z.string().uuid() }))
+      .query(async ({ input }) => {
+        return await db.getPendenciesByCompanyId(input.companyId);
+      }),
+
+    create: protectedProcedure
+      .input(z.object({
+        companyId: z.string().uuid().optional(),
+        source: z.enum(['RECEITA', 'DIVIDA_ATIVA']).optional(),
+        description: z.string().optional(),
+        amount: z.string().optional(), // decimal as string
+      }))
+      .mutation(async ({ input }) => {
+        return await db.createPendency(input);
+      }),
   }),
 });
 

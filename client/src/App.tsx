@@ -12,6 +12,17 @@ import Procuracoes from "./pages/Procuracoes";
 import Notificacoes from "./pages/Notificacoes";
 import Agendamentos from "./pages/Agendamentos";
 import Configuracoes from "./pages/Configuracoes";
+import FgtsDigital from "./pages/FgtsDigital";
+import SimplesNacional from "./pages/SimplesNacional";
+import DctfWeb from "./pages/DctfWeb";
+import Parcelamentos from "./pages/Parcelamentos";
+import SituacaoFiscal from "./pages/SituacaoFiscal";
+import CaixasPostais from "./pages/CaixasPostais";
+import Declaracoes from "./pages/Declaracoes";
+import ProcessosFiscais from "./pages/ProcessosFiscais";
+
+import ConsultasMassa from "./pages/ConsultasMassa";
+import Equipe from "./pages/Equipe";
 
 function Router() {
   return (
@@ -24,6 +35,16 @@ function Router() {
       <Route path="/notificacoes" component={Notificacoes} />
       <Route path="/agendamentos" component={Agendamentos} />
       <Route path="/configuracoes" component={Configuracoes} />
+      <Route path="/fgts-digital" component={FgtsDigital} />
+      <Route path="/monitor/simples-nacional" component={SimplesNacional} />
+      <Route path="/monitor/dctfweb" component={DctfWeb} />
+      <Route path="/monitor/parcelamentos" component={Parcelamentos} />
+      <Route path="/monitor/situacao-fiscal" component={SituacaoFiscal} />
+      <Route path="/monitor/caixas-postais" component={CaixasPostais} />
+      <Route path="/monitor/declaracoes" component={Declaracoes} />
+      <Route path="/processos-fiscais" component={ProcessosFiscais} />
+      <Route path="/consultas-massa" component={ConsultasMassa} />
+      <Route path="/equipe" component={Equipe} />
       <Route path={"/404"} component={NotFound} />
       <Route component={NotFound} />
     </Switch>
@@ -40,7 +61,7 @@ function App() {
     <ErrorBoundary>
       <ThemeProvider
         defaultTheme="dark"
-        // switchable
+        switchable
       >
         <TooltipProvider>
           <Toaster />

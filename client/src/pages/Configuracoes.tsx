@@ -4,11 +4,14 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { trpc } from "@/lib/trpc";
-import { Settings as SettingsIcon, Save } from "lucide-react";
+import { Settings as SettingsIcon, Save, Sun, Moon } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
+import { useTheme } from "@/contexts/ThemeContext";
 import { useState, useEffect } from "react";
 import { toast } from "sonner";
 
 export default function Configuracoes() {
+  const { theme, toggleTheme } = useTheme();
   const { data: settings, isLoading } = trpc.settings.get.useQuery();
   const upsertSettings = trpc.settings.upsert.useMutation({
     onSuccess: () => {
@@ -65,7 +68,7 @@ export default function Configuracoes() {
             ) : (
               <form onSubmit={handleSubmit} className="space-y-6">
                 <div className="space-y-4">
-                  <div>
+                  <div className="space-y-2">
                     <Label htmlFor="numeroDisparo">Número de Disparo</Label>
                     <Input
                       id="numeroDisparo"
@@ -78,7 +81,7 @@ export default function Configuracoes() {
                     </p>
                   </div>
 
-                  <div>
+                  <div className="space-y-2">
                     <Label htmlFor="emailDisparo">E-mail de Disparo</Label>
                     <Input
                       id="emailDisparo"
@@ -92,7 +95,7 @@ export default function Configuracoes() {
                     </p>
                   </div>
 
-                  <div>
+                  <div className="space-y-2">
                     <Label htmlFor="certificadoDigitalId">Certificado Digital para Automações</Label>
                     <Input
                       id="certificadoDigitalId"
@@ -120,6 +123,33 @@ export default function Configuracoes() {
                 </div>
               </form>
             )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Aparência</CardTitle>
+            <CardDescription>
+              Personalize a aparência do sistema
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5">
+                <Label>Tema Escuro</Label>
+                <p className="text-sm text-muted-foreground">
+                  Ativar ou desativar o modo escuro
+                </p>
+              </div>
+              <div className="flex items-center space-x-2">
+                <Sun className="h-4 w-4 text-muted-foreground" />
+                <Switch
+                  checked={theme === "dark"}
+                  onCheckedChange={toggleTheme}
+                />
+                <Moon className="h-4 w-4 text-muted-foreground" />
+              </div>
+            </div>
           </CardContent>
         </Card>
 

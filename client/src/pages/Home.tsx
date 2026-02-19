@@ -2,10 +2,10 @@ import DashboardLayout from "@/components/DashboardLayout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { trpc } from "@/lib/trpc";
-import { 
-  FileText, 
-  Users, 
-  Shield, 
+import {
+  FileText,
+  Users,
+  Shield,
   Activity,
   TrendingUp,
   AlertCircle,
@@ -16,7 +16,7 @@ import {
 import { Link } from "wouter";
 
 export default function Home() {
-  const { data: clients, isLoading: loadingClients } = trpc.clients.list.useQuery();
+  const { data: clients, isLoading: loadingClients } = trpc.companies.list.useQuery();
   const { data: processStats, isLoading: loadingStats } = trpc.fiscalProcesses.getStats.useQuery();
   const { data: notifications, isLoading: loadingNotifications } = trpc.notifications.list.useQuery();
   const { data: settings } = trpc.settings.get.useQuery();
@@ -123,7 +123,7 @@ export default function Home() {
                   <span className="text-sm text-muted-foreground">→</span>
                 </a>
               </Link>
-              
+
               <Link href="/monitor?type=pgmei">
                 <a className="flex items-center justify-between p-3 rounded-lg border border-border hover:bg-accent transition-colors">
                   <div className="flex items-center gap-3">
@@ -283,9 +283,8 @@ export default function Home() {
                 {notifications.slice(0, 5).map((notification) => (
                   <div
                     key={notification.id}
-                    className={`p-3 rounded-lg border ${
-                      notification.read ? "border-border" : "border-primary bg-primary/5"
-                    }`}
+                    className={`p-3 rounded-lg border ${notification.read ? "border-border" : "border-primary bg-primary/5"
+                      }`}
                   >
                     <p className="font-medium text-sm">{notification.title}</p>
                     {notification.description && (
