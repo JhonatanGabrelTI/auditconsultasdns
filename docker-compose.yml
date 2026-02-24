@@ -1,6 +1,18 @@
 version: '3.8'
 
 services:
+  db:
+    image: postgres:15
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=audit_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+
   app:
     build:
       context: .
@@ -8,14 +20,16 @@ services:
     ports:
       - "3000:3000"
     environment:
-      - NODE_ENV=production
-      - DATABASE_URL=${DATABASE_URL}
+      - NODE_ENV=development
+      - DATABASE_URL=postgresql://postgres:postgres@db:5432/audit_db
       - INFOSIMPLES_API_TOKEN=${INFOSIMPLES_API_TOKEN}
       - INFOSIMPLES_BASE_URL=${INFOSIMPLES_BASE_URL}
       - OAUTH_SERVER_URL=${OAUTH_SERVER_URL}
       - VITE_ANALYTICS_ENDPOINT=${VITE_ANALYTICS_ENDPOINT}
       - VITE_ANALYTICS_WEBSITE_ID=${VITE_ANALYTICS_WEBSITE_ID}
     restart: unless-stopped
+    depends_on:
+      - db
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
       interval: 30s
@@ -31,9 +45,14 @@ services:
     ports:
       - "3001:3001"
     environment:
-      - NODE_ENV=production
+      - NODE_ENV=development
+      - DATABASE_URL=postgresql://postgres:postgres@db:5432/audit_db
       - BRADESCO_API_KEY=${BRADESCO_API_KEY}
       - BRADESCO_API_SECRET=${BRADESCO_API_SECRET}
     restart: unless-stopped
     depends_on:
       - app
+      - db
+
+volumes:
+  postgres_data:

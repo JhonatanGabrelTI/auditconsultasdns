@@ -24,6 +24,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge";
 import { trpc } from "@/lib/trpc";
 import {
+  RefreshCw,
   Plus,
   Search,
   Users,
@@ -45,18 +46,399 @@ import {
 import { useState } from "react";
 import { toast } from "sonner";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { useTransition } from "react";
+
+interface ClientFormProps {
+  onSuccess: () => void;
+  onCancel: () => void;
+  initialData?: any;
+  isEdit?: boolean;
+}
+
+function ClientForm({ onSuccess, onCancel, initialData, isEdit }: ClientFormProps) {
+  const [isPending, startTransition] = useTransition();
+  const [formData, setFormData] = useState<{
+    personType: "juridica" | "fisica";
+    cnpjCpf: string;
+    name: string;
+    taxRegime?: "simples_nacional" | "lucro_presumido" | "lucro_real" | "mei" | "isento";
+    inscricaoEstadual?: string;
+    emails?: string;
+    whatsapps?: string;
+  }>({
+    personType: initialData?.personType || "juridica",
+    cnpjCpf: (initialData?.cnpj || initialData?.cpf) || "",
+    name: initialData?.name || "",
+    taxRegime: initialData?.taxRegime || undefined,
+    inscricaoEstadual: initialData?.inscricaoEstadual || "",
+    emails: Array.isArray(initialData?.emails) ? initialData.emails.join(", ") : "",
+    whatsapps: Array.isArray(initialData?.whatsapps) ? initialData.whatsapps.join(", ") : "",
+  });
+
+  const createClient = trpc.companies.create.useMutation({
+    onSuccess: () => {
+      toast.success("Cliente cadastrado com sucesso!");
+      onSuccess();
+    },
+    onError: (error) => {
+      const cleanMessage = error.message.includes("]: ")
+        ? error.message.split("]: ").pop()
+        : error.message;
+      toast.error(cleanMessage);
+    },
+  });
+
+  const updateClient = trpc.companies.update.useMutation({
+    onSuccess: () => {
+      toast.success("Cliente atualizado com sucesso!");
+      onSuccess();
+    },
+    onError: (error) => {
+      const cleanMessage = error.message.includes("]: ")
+        ? error.message.split("]: ").pop()
+        : error.message;
+      toast.error(cleanMessage);
+    },
+  });
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+
+    const emailsArray = formData.emails
+      ? formData.emails.split(",").map(e => e.trim()).filter(e => e)
+      : [];
+
+    const whatsappsArray = formData.whatsapps
+      ? formData.whatsapps.split(",").map(w => w.trim()).filter(w => w)
+      : [];
+
+    const payload: any = {
+      name: formData.name,
+      personType: formData.personType,
+      taxRegime: formData.taxRegime,
+      inscricaoEstadual: formData.inscricaoEstadual,
+      emails: emailsArray,
+      whatsapps: whatsappsArray,
+    };
+
+    if (formData.personType === "juridica") {
+      payload.cnpj = formData.cnpjCpf;
+    } else {
+      payload.cpf = formData.cnpjCpf;
+    }
+
+    if (isEdit) {
+      updateClient.mutate({ id: initialData.id, ...payload });
+    } else {
+      createClient.mutate(payload);
+    }
+  };
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-4 pt-4">
+      <Tabs
+        value={formData.personType}
+        onValueChange={(value) =>
+          setFormData({ ...formData, personType: value as "juridica" | "fisica" })
+        }
+      >
+        <TabsList className="grid w-full grid-cols-2">
+          <TabsTrigger value="juridica">
+            <Building2 className="h-4 w-4 mr-2" />
+            Pessoa Jurídica
+          </TabsTrigger>
+          <TabsTrigger value="fisica">
+            <User className="h-4 w-4 mr-2" />
+            Pessoa Física
+          </TabsTrigger>
+        </TabsList>
+      </Tabs>
+
+      <div className="space-y-4">
+        <div className="grid grid-cols-2 gap-4">
+          <div className="space-y-2">
+            <Label htmlFor="cnpjCpf">
+              {formData.personType === "juridica" ? "CNPJ" : "CPF"}
+            </Label>
+            <Input
+              id="cnpjCpf"
+              placeholder={formData.personType === "juridica" ? "00.000.000/0000-00" : "000.000.000-00"}
+              value={formData.cnpjCpf}
+              onChange={(e) => setFormData({ ...formData, cnpjCpf: e.target.value })}
+              required
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="name">
+              {formData.personType === "juridica" ? "Razão Social" : "Nome Completo"}
+            </Label>
+            <Input
+              id="name"
+              placeholder={formData.personType === "juridica" ? "EMPRESA LTDA" : "Nome Completo"}
+              value={formData.name}
+              onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+              required
+            />
+          </div>
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor="taxRegime">Regime Tributário</Label>
+          <Select
+            value={formData.taxRegime}
+            onValueChange={(value) => {
+              // Wrap in setTimeout and useTransition to allow Radix UI and React 19 to coordinate cleanup
+              setTimeout(() => {
+                startTransition(() => {
+                  setFormData(prev => ({ ...prev, taxRegime: value as any }));
+                });
+              }, 0);
+            }}
+          >
+            <SelectTrigger id="taxRegime">
+              <SelectValue placeholder="Selecione um regime" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="simples_nacional">Simples Nacional</SelectItem>
+              <SelectItem value="lucro_presumido">Lucro Presumido</SelectItem>
+              <SelectItem value="lucro_real">Lucro Real</SelectItem>
+              <SelectItem value="mei">MEI</SelectItem>
+              <SelectItem value="isento">Isento</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
+        {formData.personType === "juridica" && (
+          <div className="space-y-2">
+            <Label htmlFor="inscricaoEstadual">Inscrição Estadual</Label>
+            <Input
+              id="inscricaoEstadual"
+              placeholder="000.000.000.000"
+              value={formData.inscricaoEstadual}
+              onChange={(e) => setFormData({ ...formData, inscricaoEstadual: e.target.value })}
+            />
+          </div>
+        )}
+
+        <div className="space-y-2">
+          <Label htmlFor="emails">E-mails (separados por vírgula)</Label>
+          <Input
+            id="emails"
+            placeholder="email1@example.com, email2@example.com"
+            value={formData.emails}
+            onChange={(e) => setFormData({ ...formData, emails: e.target.value })}
+          />
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor="whatsapps">WhatsApp (separados por vírgula)</Label>
+          <Input
+            id="whatsapps"
+            placeholder="(11) 99999-9999, (11) 98888-8888"
+            value={formData.whatsapps}
+            onChange={(e) => setFormData({ ...formData, whatsapps: e.target.value })}
+          />
+        </div>
+      </div>
+
+      <div className="flex justify-end gap-2 pt-4 border-t">
+        <Button type="button" variant="outline" onClick={onCancel}>
+          Cancelar
+        </Button>
+        <Button
+          type="submit"
+          disabled={createClient.isPending || updateClient.isPending}
+          className="bg-emerald-600 hover:bg-emerald-700"
+        >
+          {createClient.isPending || updateClient.isPending ? "Salvando..." : "Salvar Cliente"}
+        </Button>
+      </div>
+    </form>
+  );
+}
+
+interface BulkImportDialogProps {
+  onSuccess: () => void;
+  onCancel: () => void;
+}
+
+function BulkImportDialog({ onSuccess, onCancel }: BulkImportDialogProps) {
+  const [csvData, setCsvData] = useState("");
+  const bulkCreate = trpc.companies.bulkCreate.useMutation({
+    onSuccess: () => {
+      toast.success("Importação concluída com sucesso!");
+      onSuccess();
+    },
+    onError: (error) => {
+      toast.error("Erro na importação: " + error.message);
+    },
+  });
+
+  const handleImport = () => {
+    if (!csvData.trim()) {
+      toast.error("Insira os dados em formato CSV.");
+      return;
+    }
+
+    try {
+      const lines = csvData.split("\n").filter(l => l.trim());
+      const headers = lines[0].split(",").map(h => h.trim().toLowerCase());
+
+      const items = lines.slice(1).map(line => {
+        const values = line.split(",").map(v => v.trim());
+        const obj: any = {};
+        headers.forEach((h, i) => {
+          if (h === "emails" || h === "whatsapps") {
+            obj[h] = values[i] ? values[i].split(";").map(v => v.trim()) : [];
+          } else {
+            obj[h] = values[i];
+          }
+        });
+
+        // Ensure standard fields
+        return {
+          name: obj.nome || obj.name,
+          personType: (obj.tipo || obj.persontype)?.toLowerCase() === "fisica" ? "fisica" : "juridica",
+          cnpj: obj.cnpj,
+          cpf: obj.cpf,
+          taxRegime: obj.regime || obj.taxregime,
+          inscricaoEstadual: obj.inscricaoestadual || obj.ie,
+          emails: obj.emails || [],
+          whatsapps: obj.whatsapps || [],
+        };
+      });
+
+      bulkCreate.mutate(items);
+    } catch (e) {
+      toast.error("Erro ao processar CSV. Verifique o formato.");
+    }
+  };
+
+  const downloadTemplate = () => {
+    const template = "nome,cnpj,persontype,regime,emails,whatsapps\nExemplo Empresa,12345678000199,juridica,simples_nacional,email@test.com,11999999999";
+    const blob = new Blob([template], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "template_clientes.csv";
+    a.click();
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const content = event.target?.result as string;
+      setCsvData(content);
+      toast.success("Arquivo carregado com sucesso!");
+    };
+    reader.onerror = () => {
+      toast.error("Erro ao ler o arquivo.");
+    };
+    reader.readAsText(file);
+  };
+
+  return (
+    <div className="space-y-4 pt-4">
+      <div className="p-4 bg-slate-100 dark:bg-slate-800 rounded-lg text-sm space-y-2">
+        <p className="font-semibold">Instruções:</p>
+        <ul className="list-disc pl-4 space-y-1">
+          <li>Use vírgula para separar colunas.</li>
+          <li>A primeira linha deve conter os cabeçalhos.</li>
+          <li>Colunas aceitas: <b>nome, cnpj, cpf, persontype, regime, emails, whatsapps</b>.</li>
+          <li>Para múltiplos e-mails ou whatsapps, use ponto e vírgula (;).</li>
+        </ul>
+        <Button variant="link" size="sm" className="p-0 h-auto" onClick={downloadTemplate}>
+          Baixar modelo CSV
+        </Button>
+      </div>
+
+      <div className="space-y-4">
+        <div className="space-y-2">
+          <Label>Carregar arquivo CSV</Label>
+          <div className="flex items-center justify-center w-full">
+            <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed rounded-lg cursor-pointer bg-slate-50 dark:bg-slate-800/50 border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800">
+              <div className="flex flex-col items-center justify-center pt-5 pb-6">
+                <Upload className="w-8 h-8 mb-3 text-slate-400" />
+                <p className="mb-2 text-sm text-slate-500 dark:text-slate-400">
+                  <span className="font-semibold">Clique para selecionar</span> ou arraste o arquivo
+                </p>
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  Apenas arquivos .csv ou .txt
+                </p>
+              </div>
+              <input type="file" className="hidden" accept=".csv,.txt" onChange={handleFileChange} />
+            </label>
+          </div>
+        </div>
+
+        <div className="relative">
+          <div className="absolute inset-0 flex items-center">
+            <span className="w-full border-t border-slate-200 dark:border-slate-800" />
+          </div>
+          <div className="relative flex justify-center text-xs uppercase">
+            <span className="bg-background px-2 text-muted-foreground">Ou cole os dados abaixo</span>
+          </div>
+        </div>
+
+        <div className="space-y-2">
+          <textarea
+            className="w-full h-40 p-3 rounded-md border border-input bg-background font-mono text-sm"
+            placeholder="nome,cnpj,persontype,regime&#10;Empresa A,00...00,juridica,simples_nacional"
+            value={csvData}
+            onChange={(e) => setCsvData(e.target.value)}
+          />
+        </div>
+      </div>
+      <div className="flex justify-end gap-2 pt-4 border-t">
+        <Button variant="outline" onClick={onCancel}>Cancelar</Button>
+        <Button
+          className="bg-blue-600 hover:bg-blue-700"
+          onClick={handleImport}
+          disabled={bulkCreate.isPending}
+        >
+          {bulkCreate.isPending ? "Importando..." : "Importar Agora"}
+        </Button>
+      </div>
+    </div>
+  );
+}
 
 export default function Clientes() {
   const [searchTerm, setSearchTerm] = useState("");
   const [regimeFilter, setRegimeFilter] = useState<string>("all");
   const [personTypeFilter, setPersonTypeFilter] = useState<string>("all");
-  const [certificateFilter, setCertificateFilter] = useState<string>("all");
   const [procuracaoFilter, setProcuracaoFilter] = useState<string>("all");
+  const [certificateFilter, setCertificateFilter] = useState<string>("all");
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [selectedClient, setSelectedClient] = useState<any>(null);
+  const [bulkImportOpen, setBulkImportOpen] = useState(false);
   const [consultaDialogOpen, setConsultaDialogOpen] = useState(false);
   const [consultaResult, setConsultaResult] = useState<any>(null);
   const [certificateDialogOpen, setCertificateDialogOpen] = useState(false);
   const [selectedClientForCertificate, setSelectedClientForCertificate] = useState<any>(null);
+  const [isPending, startTransition] = useTransition();
+
+  const handleFormSuccess = () => {
+    setDialogOpen(false);
+    setEditDialogOpen(false);
+    // Give time for the dialog to unmount before refetching
+    setTimeout(() => {
+      refetch();
+    }, 100);
+  };
+
+  const { data: clients, isLoading, refetch } = trpc.companies.search.useQuery({
+    searchTerm: searchTerm || undefined,
+    taxRegime: regimeFilter !== "all" ? regimeFilter : undefined,
+    personType: personTypeFilter !== "all" ? personTypeFilter : undefined,
+  }, {
+    // Prevent flickering by keeping old data while fetching
+    placeholderData: (previousData) => previousData,
+  });
 
   const consultarCNDFederal = trpc.apiConsultas.consultarCNDFederal.useMutation({
     onSuccess: (data) => {
@@ -91,6 +473,16 @@ export default function Clientes() {
     },
   });
 
+  const deleteClient = trpc.companies.delete.useMutation({
+    onSuccess: () => {
+      toast.success("Cliente excluído com sucesso!");
+      refetch();
+    },
+    onError: (error) => {
+      toast.error("Erro ao excluir cliente: " + error.message);
+    },
+  });
+
   const handleConsultarCNDFederal = (companyId: string) => {
     if (confirm("Deseja consultar a CND Federal deste cliente?")) {
       consultarCNDFederal.mutate({ companyId });
@@ -114,85 +506,53 @@ export default function Clientes() {
     setCertificateDialogOpen(true);
   };
 
-  const { data: clients, isLoading, refetch } = trpc.companies.search.useQuery({
-    searchTerm: searchTerm || undefined,
-    taxRegime: regimeFilter !== "all" ? regimeFilter : undefined,
-    personType: personTypeFilter !== "all" ? personTypeFilter : undefined,
-  });
-
-  const createClient = trpc.companies.create.useMutation({
-    onSuccess: () => {
-      toast.success("Cliente cadastrado com sucesso!");
-      setDialogOpen(false);
-      refetch();
-    },
-    onError: (error) => {
-      toast.error("Erro ao cadastrar cliente: " + error.message);
-    },
-  });
-
-  const [formData, setFormData] = useState<{
-    personType: "juridica" | "fisica";
-    cnpjCpf: string;
-    razaoSocialNome: string;
-    regimeTributario?: "simples_nacional" | "lucro_presumido" | "lucro_real" | "mei" | "isento";
-    inscricaoEstadual?: string;
-    emails?: string;
-    whatsapps?: string;
-  }>({
-    personType: "juridica",
-    cnpjCpf: "",
-    razaoSocialNome: "",
-    regimeTributario: undefined,
-    inscricaoEstadual: "",
-    emails: "",
-    whatsapps: "",
-  });
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-
-    // Converter emails e whatsapps para array JSON
-    const emailsArray = formData.emails
-      ? formData.emails.split(",").map(e => e.trim()).filter(e => e)
-      : [];
-
-    const whatsappsArray = formData.whatsapps
-      ? formData.whatsapps.split(",").map(w => w.trim()).filter(w => w)
-      : [];
-
-    createClient.mutate({
-      personType: formData.personType as "juridica" | "fisica",
-      name: formData.razaoSocialNome,
-      cnpj: formData.personType === "juridica" ? formData.cnpjCpf : undefined,
-      cpf: formData.personType === "fisica" ? formData.cnpjCpf : undefined,
-      taxRegime: formData.regimeTributario,
-      inscricaoEstadual: formData.inscricaoEstadual,
-      emails: emailsArray,
-      whatsapps: whatsappsArray,
-    });
-  };
-
   const totalClients = clients?.length || 0;
   const activeClients = clients?.filter(c => c.active).length || 0;
+  const clientsWithoutCertificate = clients?.filter(c => !c.certificatePath).length || 0;
 
-  // Placeholder stats matching the reference image's logic (would be dynamic in real app)
-  // Placeholder stats matching the reference image's logic (would be dynamic in real app)
   const stats = [
-    { label: "Total", value: totalClients || "0", icon: Users, color: "text-slate-600 dark:text-slate-400", bg: "bg-slate-100 dark:bg-slate-800/50", border: "border-slate-200 dark:border-slate-700" },
-    { label: "Ativo", value: activeClients || "0", icon: CheckCircle, color: "text-emerald-600 dark:text-emerald-500", bg: "bg-emerald-100 dark:bg-emerald-950/30", border: "border-emerald-200 dark:border-emerald-900/50" },
-    { label: "Sem certificado", value: "0", icon: FileText, color: "text-blue-600 dark:text-blue-500", bg: "bg-blue-100 dark:bg-blue-950/30", border: "border-blue-200 dark:border-blue-900/50" },
+    { label: "Total", value: totalClients, icon: Users, color: "text-slate-600 dark:text-slate-400", bg: "bg-slate-100 dark:bg-slate-800/50", border: "border-slate-200 dark:border-slate-700" },
+    { label: "Ativo", value: activeClients, icon: CheckCircle, color: "text-emerald-600 dark:text-emerald-500", bg: "bg-emerald-100 dark:bg-emerald-950/30", border: "border-emerald-200 dark:border-emerald-900/50" },
+    { label: "Sem certificado", value: clientsWithoutCertificate, icon: FileText, color: "text-blue-600 dark:text-blue-500", bg: "bg-blue-100 dark:bg-blue-950/30", border: "border-blue-200 dark:border-blue-900/50" },
     { label: "Em breve", value: "0", icon: Clock, color: "text-amber-600 dark:text-amber-500", bg: "bg-amber-100 dark:bg-amber-950/30", border: "border-amber-200 dark:border-amber-900/50" },
     { label: "Vencidos/Inválidos", value: "0", icon: AlertTriangle, color: "text-rose-600 dark:text-rose-500", bg: "bg-rose-100 dark:bg-rose-950/30", border: "border-rose-200 dark:border-rose-900/50" },
   ];
+
+  const handleBulkDownload = () => {
+    if (!clients || clients.length === 0) {
+      toast.error("Não há clientes para exportar.");
+      return;
+    }
+
+    const headers = ["ID", "Nome", "Tipo", "CNPJ/CPF", "Regime", "Email", "WhatsApp", "Certificado"];
+    const rows = clients.map(c => [
+      c.id,
+      c.name,
+      c.personType,
+      c.cnpj || c.cpf,
+      c.taxRegime || "-",
+      Array.isArray(c.emails) ? c.emails.join(";") : "",
+      Array.isArray(c.whatsapps) ? c.whatsapps.join(";") : "",
+      c.certificatePath ? "Sim" : "Não"
+    ]);
+
+    const csvContent = [headers, ...rows].map(e => e.join(",")).join("\n");
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", "lista_clientes_guias.csv");
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    toast.success("Download em lote concluído!");
+  };
 
   return (
     <DashboardLayout>
       <div className="container py-6 space-y-8 max-w-[1600px]">
         {/* Header Section */}
         <div className="flex flex-col md:flex-row gap-6">
-
-          {/* Certificados Digitais Dashboard */}
           <div className="flex-1 space-y-4">
             <h2 className="text-lg font-semibold text-foreground">Certificados digitais</h2>
             <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
@@ -212,7 +572,6 @@ export default function Clientes() {
             </div>
           </div>
 
-          {/* Ações Actions */}
           <div className="w-full md:w-80 space-y-4">
             <h2 className="text-lg font-semibold text-foreground">Ações</h2>
             <div className="flex flex-col gap-3">
@@ -230,123 +589,38 @@ export default function Clientes() {
                       Adicione um novo cliente à sua base
                     </DialogDescription>
                   </DialogHeader>
-                  <form onSubmit={handleSubmit} className="space-y-4">
-                    <Tabs
-                      value={formData.personType}
-                      onValueChange={(value) =>
-                        setFormData({ ...formData, personType: value as "juridica" | "fisica" })
-                      }
-                    >
-                      <TabsList className="grid w-full grid-cols-2">
-                        <TabsTrigger value="juridica">
-                          <Building2 className="h-4 w-4 mr-2" />
-                          Pessoa Jurídica
-                        </TabsTrigger>
-                        <TabsTrigger value="fisica">
-                          <User className="h-4 w-4 mr-2" />
-                          Pessoa Física
-                        </TabsTrigger>
-                      </TabsList>
-                    </Tabs>
-
-                    <div className="space-y-4">
-                      <div className="grid grid-cols-2 gap-4">
-                        <div>
-                          <Label htmlFor="cnpjCpf">
-                            {formData.personType === "juridica" ? "CNPJ" : "CPF"}
-                          </Label>
-                          <Input
-                            id="cnpjCpf"
-                            placeholder={formData.personType === "juridica" ? "00.000.000/0000-00" : "000.000.000-00"}
-                            value={formData.cnpjCpf}
-                            onChange={(e) => setFormData({ ...formData, cnpjCpf: e.target.value })}
-                            required
-                          />
-                        </div>
-                        <div>
-                          <Label htmlFor="razaoSocialNome">
-                            {formData.personType === "juridica" ? "Razão Social" : "Nome Completo"}
-                          </Label>
-                          <Input
-                            id="razaoSocialNome"
-                            placeholder={formData.personType === "juridica" ? "EMPRESA LTDA" : "Nome Completo"}
-                            value={formData.razaoSocialNome}
-                            onChange={(e) => setFormData({ ...formData, razaoSocialNome: e.target.value })}
-                            required
-                          />
-                        </div>
-                      </div>
-
-                      <div>
-                        <Label htmlFor="regimeTributario">Regime Tributário</Label>
-                        <Select
-                          value={formData.regimeTributario}
-                          onValueChange={(value) => setFormData({ ...formData, regimeTributario: value as any })}
-                        >
-                          <SelectTrigger>
-                            <SelectValue placeholder="Selecione um regime" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="simples_nacional">Simples Nacional</SelectItem>
-                            <SelectItem value="lucro_presumido">Lucro Presumido</SelectItem>
-                            <SelectItem value="lucro_real">Lucro Real</SelectItem>
-                            <SelectItem value="mei">MEI</SelectItem>
-                            <SelectItem value="isento">Isento</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-
-                      {formData.personType === "juridica" && (
-                        <div>
-                          <Label htmlFor="inscricaoEstadual">Inscrição Estadual</Label>
-                          <Input
-                            id="inscricaoEstadual"
-                            placeholder="000.000.000.000"
-                            value={formData.inscricaoEstadual}
-                            onChange={(e) => setFormData({ ...formData, inscricaoEstadual: e.target.value })}
-                          />
-                        </div>
-                      )}
-
-                      <div>
-                        <Label htmlFor="emails">E-mails (separados por vírgula)</Label>
-                        <Input
-                          id="emails"
-                          placeholder="email1@example.com, email2@example.com"
-                          value={formData.emails}
-                          onChange={(e) => setFormData({ ...formData, emails: e.target.value })}
-                        />
-                      </div>
-
-                      <div>
-                        <Label htmlFor="whatsapps">WhatsApp (separados por vírgula)</Label>
-                        <Input
-                          id="whatsapps"
-                          placeholder="(11) 99999-9999, (11) 98888-8888"
-                          value={formData.whatsapps}
-                          onChange={(e) => setFormData({ ...formData, whatsapps: e.target.value })}
-                        />
-                      </div>
-                    </div>
-
-                    <div className="flex justify-end gap-2 pt-4 border-t">
-                      <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>
-                        Cancelar
-                      </Button>
-                      <Button type="submit" disabled={createClient.isPending} className="bg-emerald-600 hover:bg-emerald-700">
-                        {createClient.isPending ? "Salvando..." : "Salvar Cliente"}
-                      </Button>
-                    </div>
-                  </form>
+                  <ClientForm
+                    onSuccess={handleFormSuccess}
+                    onCancel={() => setDialogOpen(false)}
+                  />
                 </DialogContent>
               </Dialog>
 
-              <Button className="w-full justify-center bg-slate-200 hover:bg-slate-300 text-slate-700 shadow-sm" onClick={() => toast.info("Funcionalidade em desenvolvimento")}>
-                <Upload className="h-4 w-4 mr-2" />
-                Adicionar vários clientes
-              </Button>
+              <Dialog open={bulkImportOpen} onOpenChange={setBulkImportOpen}>
+                <DialogTrigger asChild>
+                  <Button className="w-full justify-center bg-slate-200 hover:bg-slate-300 text-slate-700 shadow-sm">
+                    <Upload className="h-4 w-4 mr-2" />
+                    Adicionar vários clientes
+                  </Button>
+                </DialogTrigger>
+                <DialogContent className="max-w-2xl">
+                  <DialogHeader>
+                    <DialogTitle>Importar Clientes em Lote</DialogTitle>
+                    <DialogDescription>
+                      Cole seus dados CSV para importar múltiplos clientes.
+                    </DialogDescription>
+                  </DialogHeader>
+                  <BulkImportDialog
+                    onSuccess={() => { setBulkImportOpen(false); refetch(); }}
+                    onCancel={() => setBulkImportOpen(false)}
+                  />
+                </DialogContent>
+              </Dialog>
 
-              <Button className="w-full justify-center bg-emerald-600 hover:bg-emerald-700 text-white" onClick={() => toast.info("Funcionalidade em desenvolvimento")}>
+              <Button
+                className="w-full justify-center bg-emerald-600 hover:bg-emerald-700 text-white"
+                onClick={handleBulkDownload}
+              >
                 <Download className="h-4 w-4 mr-2" />
                 Baixar guias em lote
               </Button>
@@ -375,7 +649,11 @@ export default function Clientes() {
               />
             </div>
             <div className="flex gap-2">
-              <Select value={certificateFilter} onValueChange={setCertificateFilter}>
+              <Select value={certificateFilter} onValueChange={(value) => {
+                setTimeout(() => {
+                  setCertificateFilter(value);
+                }, 0);
+              }}>
                 <SelectTrigger className="w-[180px] bg-card border-border">
                   <SelectValue placeholder="Todos" />
                 </SelectTrigger>
@@ -387,7 +665,11 @@ export default function Clientes() {
                 </SelectContent>
               </Select>
 
-              <Select value={procuracaoFilter} onValueChange={setProcuracaoFilter}>
+              <Select value={procuracaoFilter} onValueChange={(value) => {
+                setTimeout(() => {
+                  setProcuracaoFilter(value);
+                }, 0);
+              }}>
                 <SelectTrigger className="w-[180px] bg-card border-border">
                   <SelectValue placeholder="Todos" />
                 </SelectTrigger>
@@ -398,7 +680,11 @@ export default function Clientes() {
                 </SelectContent>
               </Select>
 
-              <Select value={regimeFilter} onValueChange={setRegimeFilter}>
+              <Select value={regimeFilter} onValueChange={(value) => {
+                setTimeout(() => {
+                  setRegimeFilter(value);
+                }, 0);
+              }}>
                 <SelectTrigger className="w-[180px] bg-card border-border">
                   <SelectValue placeholder="Todos" />
                 </SelectTrigger>
@@ -408,10 +694,24 @@ export default function Clientes() {
                   <SelectItem value="lucro_presumido">Lucro Presumido</SelectItem>
                   <SelectItem value="lucro_real">Lucro Real</SelectItem>
                   <SelectItem value="mei">MEI</SelectItem>
+                  <SelectItem value="isento">Isento</SelectItem>
                 </SelectContent>
               </Select>
 
-              <Button variant="outline" className="bg-card border-border hover:bg-slate-800">
+              <Button
+                variant="outline"
+                className="bg-card border-border hover:bg-slate-800"
+                onClick={() => refetch()}
+              >
+                <RefreshCw className="h-4 w-4 mr-2" />
+                Atualizar
+              </Button>
+
+              <Button
+                variant="outline"
+                className="bg-card border-border hover:bg-slate-800"
+                onClick={handleBulkDownload}
+              >
                 <FileSpreadsheet className="h-4 w-4 mr-2" />
                 Exportar Planilha
               </Button>
@@ -423,7 +723,7 @@ export default function Clientes() {
         <Card className="bg-card border-border">
           <Table>
             <TableHeader>
-              <TableRow className="border-border hover:bg-slate-800/50">
+              <TableRow className="border-border hover:bg-transparent">
                 <TableHead className="w-[200px]">Certificado Digital</TableHead>
                 <TableHead className="w-[200px]">Procuração e-CAC</TableHead>
                 <TableHead>Razão Social | Nome</TableHead>
@@ -433,7 +733,7 @@ export default function Clientes() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {isLoading ? (
+              {isLoading && !clients ? (
                 <TableRow>
                   <TableCell colSpan={6} className="text-center py-8">
                     Carregando...
@@ -479,7 +779,15 @@ export default function Clientes() {
                     </TableCell>
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-2">
-                        <Button size="icon" variant="ghost" className="h-8 w-8 hover:bg-slate-800">
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="h-8 w-8 hover:bg-slate-800"
+                          onClick={() => {
+                            setSelectedClient(client);
+                            setEditDialogOpen(true);
+                          }}
+                        >
                           <Edit2 className="h-4 w-4 text-muted-foreground" />
                         </Button>
                         <DropdownMenu>
@@ -498,7 +806,15 @@ export default function Clientes() {
                             <DropdownMenuItem onClick={() => handleConsultarFGTS(client.id)}>
                               Consultar FGTS
                             </DropdownMenuItem>
-                            <DropdownMenuItem className="text-red-500 focus:text-red-500">
+                            <DropdownMenuItem
+                              className="text-red-500 focus:text-red-500"
+                              onClick={() => {
+                                if (confirm(`Deseja realmente excluir o cliente ${client.name}?`)) {
+                                  deleteClient.mutate({ id: client.id });
+                                }
+                              }}
+                            >
+                              <Trash2 className="h-4 w-4 mr-2" />
                               Excluir
                             </DropdownMenuItem>
                           </DropdownMenuContent>
@@ -518,7 +834,7 @@ export default function Clientes() {
           </Table>
         </Card>
 
-        {/* Modal de Resultado de Consulta (Mantido) */}
+        {/* Modal de Resultado de Consulta */}
         <Dialog open={consultaDialogOpen} onOpenChange={setConsultaDialogOpen}>
           <DialogContent>
             <DialogHeader>
@@ -578,6 +894,7 @@ export default function Clientes() {
           </DialogContent>
         </Dialog>
 
+        {/* Modal de Certificado Digital */}
         <Dialog open={certificateDialogOpen} onOpenChange={setCertificateDialogOpen}>
           <DialogContent className="sm:max-w-md">
             <DialogHeader>
@@ -603,6 +920,26 @@ export default function Clientes() {
               <Button variant="outline" onClick={() => setCertificateDialogOpen(false)}>Cancelar</Button>
               <Button className="bg-emerald-600 hover:bg-emerald-700 text-white">Verificar e Salvar</Button>
             </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Modal de Editar Cliente */}
+        <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
+          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>Editar Cliente</DialogTitle>
+              <DialogDescription>
+                Atualize as informações do cliente
+              </DialogDescription>
+            </DialogHeader>
+            {selectedClient && (
+              <ClientForm
+                isEdit
+                initialData={selectedClient}
+                onSuccess={handleFormSuccess}
+                onCancel={() => setEditDialogOpen(false)}
+              />
+            )}
           </DialogContent>
         </Dialog>
       </div>

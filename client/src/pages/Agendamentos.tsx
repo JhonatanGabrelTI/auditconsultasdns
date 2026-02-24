@@ -24,13 +24,13 @@ import { Switch } from "@/components/ui/switch";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Separator } from "@/components/ui/separator";
 import { trpc } from "@/lib/trpc";
-import { 
-  Calendar, 
-  Plus, 
-  Trash2, 
-  Clock, 
-  Bell, 
-  CheckCircle, 
+import {
+  Calendar,
+  Plus,
+  Trash2,
+  Clock,
+  Bell,
+  CheckCircle,
   AlertCircle,
   Play,
   Pause,
@@ -40,7 +40,8 @@ import {
   Mail,
   MessageSquare,
   Zap,
-  ChevronRight
+  ChevronRight,
+  RefreshCw
 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -67,6 +68,14 @@ const scheduleTypeColors: Record<string, string> = {
   parcelamentos: "bg-pink-500",
   dctfweb: "bg-purple-500",
   declaracoes: "bg-orange-500",
+};
+
+const scheduleToProcessType: Record<string, string> = {
+  das_simples: "simples_nacional",
+  das_mei: "simples_nacional",
+  parcelamentos: "parcelamentos",
+  dctfweb: "dctfweb",
+  declaracoes: "declaracoes",
 };
 
 // Mock de histórico de execuções
@@ -124,10 +133,20 @@ export default function Agendamentos() {
       toast.error("Selecione um tipo de agendamento");
       return;
     }
+    const time = `${formData.hour.toString().padStart(2, "0")}:00`;
+    const processType = scheduleToProcessType[formData.scheduleType];
+
+    if (!processType) {
+      toast.error("Tipo de processo não mapeado corretamente");
+      return;
+    }
+
     createSchedule.mutate({
       scheduleType: formData.scheduleType,
       dayOfMonth: formData.dayOfMonth,
       active: formData.active,
+      time: time,
+      processType: processType as any,
     });
   };
 
@@ -138,7 +157,7 @@ export default function Agendamentos() {
     const today = new Date();
     const currentMonth = today.getMonth();
     const currentYear = today.getFullYear();
-    
+
     let nextDate = new Date(currentYear, currentMonth, dayOfMonth);
     if (nextDate < today) {
       nextDate = new Date(currentYear, currentMonth + 1, dayOfMonth);
@@ -158,6 +177,15 @@ export default function Agendamentos() {
             </p>
           </div>
           <div className="flex items-center gap-3">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => refetch()}
+              className="bg-card border-border hover:bg-slate-800"
+            >
+              <RefreshCw className="h-4 w-4 mr-2" />
+              Atualizar
+            </Button>
             <Badge variant="outline" className="px-3 py-1">
               <CheckCircle className="h-3 w-3 mr-1 text-green-500" />
               {activeCount} Ativos
@@ -249,7 +277,7 @@ export default function Agendamentos() {
                       <Checkbox
                         id="notifyEmail"
                         checked={formData.notifyEmail}
-                        onCheckedChange={(checked) => 
+                        onCheckedChange={(checked) =>
                           setFormData({ ...formData, notifyEmail: checked as boolean })
                         }
                       />
@@ -262,7 +290,7 @@ export default function Agendamentos() {
                       <Checkbox
                         id="notifyWhatsApp"
                         checked={formData.notifyWhatsApp}
-                        onCheckedChange={(checked) => 
+                        onCheckedChange={(checked) =>
                           setFormData({ ...formData, notifyWhatsApp: checked as boolean })
                         }
                       />
@@ -321,8 +349,8 @@ export default function Agendamentos() {
                   <p className="text-sm text-muted-foreground">Total Agendamentos</p>
                   <p className="text-2xl font-bold">{schedules?.length || 0}</p>
                 </div>
-                <div className="h-10 w-10 rounded-lg bg-blue-100 flex items-center justify-center">
-                  <Calendar className="h-5 w-5 text-blue-600" />
+                <div className="h-10 w-10 rounded-lg bg-blue-500/10 flex items-center justify-center">
+                  <Calendar className="h-5 w-5 text-blue-500" />
                 </div>
               </div>
             </CardContent>
@@ -334,8 +362,8 @@ export default function Agendamentos() {
                   <p className="text-sm text-muted-foreground">Ativos</p>
                   <p className="text-2xl font-bold text-green-600">{activeCount}</p>
                 </div>
-                <div className="h-10 w-10 rounded-lg bg-green-100 flex items-center justify-center">
-                  <Play className="h-5 w-5 text-green-600" />
+                <div className="h-10 w-10 rounded-lg bg-green-500/10 flex items-center justify-center">
+                  <Play className="h-5 w-5 text-green-500" />
                 </div>
               </div>
             </CardContent>
@@ -347,8 +375,8 @@ export default function Agendamentos() {
                   <p className="text-sm text-muted-foreground">Execuções Hoje</p>
                   <p className="text-2xl font-bold text-purple-600">0</p>
                 </div>
-                <div className="h-10 w-10 rounded-lg bg-purple-100 flex items-center justify-center">
-                  <Zap className="h-5 w-5 text-purple-600" />
+                <div className="h-10 w-10 rounded-lg bg-purple-500/10 flex items-center justify-center">
+                  <Zap className="h-5 w-5 text-purple-500" />
                 </div>
               </div>
             </CardContent>
@@ -360,8 +388,8 @@ export default function Agendamentos() {
                   <p className="text-sm text-muted-foreground">Taxa Sucesso</p>
                   <p className="text-2xl font-bold text-blue-600">98%</p>
                 </div>
-                <div className="h-10 w-10 rounded-lg bg-blue-100 flex items-center justify-center">
-                  <CheckCircle className="h-5 w-5 text-blue-600" />
+                <div className="h-10 w-10 rounded-lg bg-blue-500/10 flex items-center justify-center">
+                  <CheckCircle className="h-5 w-5 text-blue-500" />
                 </div>
               </div>
             </CardContent>
@@ -459,10 +487,9 @@ export default function Agendamentos() {
                 <div className="space-y-3">
                   {mockExecutionHistory.map((exec) => (
                     <div key={exec.id} className="flex items-start gap-3 p-3 rounded-lg border border-border">
-                      <div className={`h-8 w-8 rounded-full flex items-center justify-center ${
-                        exec.status === "success" ? "bg-green-100" :
+                      <div className={`h-8 w-8 rounded-full flex items-center justify-center ${exec.status === "success" ? "bg-green-100" :
                         exec.status === "partial" ? "bg-yellow-100" : "bg-red-100"
-                      }`}>
+                        }`}>
                         {exec.status === "success" ? (
                           <CheckCircle className="h-4 w-4 text-green-600" />
                         ) : exec.status === "partial" ? (
@@ -478,13 +505,12 @@ export default function Agendamentos() {
                         <p className="text-xs text-muted-foreground">
                           {new Date(exec.date).toLocaleDateString("pt-BR")}
                         </p>
-                        <Badge 
-                          variant="outline" 
-                          className={`mt-1 text-xs ${
-                            exec.status === "success" ? "border-green-200 text-green-700" :
+                        <Badge
+                          variant="outline"
+                          className={`mt-1 text-xs ${exec.status === "success" ? "border-green-200 text-green-700" :
                             exec.status === "partial" ? "border-yellow-200 text-yellow-700" :
-                            "border-red-200 text-red-700"
-                          }`}
+                              "border-red-200 text-red-700"
+                            }`}
                         >
                           {exec.count} processados
                         </Badge>

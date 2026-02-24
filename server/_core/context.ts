@@ -1,6 +1,7 @@
 import type { CreateExpressContextOptions } from "@trpc/server/adapters/express";
 import type { User } from "../../drizzle/schema";
 import { sdk } from "./sdk";
+import * as db from "../db";
 
 export type TrpcContext = {
   req: CreateExpressContextOptions["req"];
@@ -22,25 +23,39 @@ export async function createContext(
   } catch (error) {
     if (isDev) {
       console.log("[Context] Auth failed in dev mode, using mock user.");
-      user = {
-        id: 1,
+      const mockUser = {
         name: "Dev User",
         email: "dev@example.com",
         openId: "mock-openid",
         loginMethod: "mock",
-        role: "admin",
-        createdAt: new Date(),
-        updatedAt: new Date(),
-        lastSignedIn: new Date(),
+        role: "admin" as const,
       };
+
+      try {
+        // Ensure mock user exists in DB to satisfy foreign keys
+        const dbUser = await db.upsertUser(mockUser);
+        if (dbUser) {
+          user = dbUser;
+        }
+      } catch (dbError) {
+        console.error("[Context] Failed to upsert mock user:", dbError);
+        // Fallback to locally defined mock if DB fails
+        user = {
+          id: 1,
+          ...mockUser,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          lastSignedIn: new Date(),
+        };
+      }
     } else {
       user = null;
     }
   }
 
-  // Double check: if user is null and we are in dev mode, force mock user
+  // Double check: if user is null and we are in dev mode, force mock user (fallback)
   if (!user && isDev) {
-    console.log("[Context] User is null in dev mode, forcing mock user.");
+    console.log("[Context] User remains null in dev mode, forcing static mock user.");
     user = {
       id: 1,
       name: "Dev User",

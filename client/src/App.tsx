@@ -37,6 +37,8 @@ function Router() {
       <Route path="/configuracoes" component={Configuracoes} />
       <Route path="/fgts-digital" component={FgtsDigital} />
       <Route path="/monitor/simples-nacional" component={SimplesNacional} />
+      <Route path="/monitor/lucro-presumido" component={MonitorHub} />
+      <Route path="/monitor/lucro-real" component={MonitorHub} />
       <Route path="/monitor/dctfweb" component={DctfWeb} />
       <Route path="/monitor/parcelamentos" component={Parcelamentos} />
       <Route path="/monitor/situacao-fiscal" component={SituacaoFiscal} />

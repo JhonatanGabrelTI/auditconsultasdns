@@ -43,15 +43,13 @@ import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 
 const processTypes = [
-  { value: "pgdas", label: "PGDAS", color: "bg-blue-500" },
-  { value: "pgmei", label: "PGMEI", color: "bg-green-500" },
+  { value: "simples_nacional", label: "Simples Nacional", color: "bg-blue-500" },
   { value: "dctfweb", label: "DCTFWeb", color: "bg-purple-500" },
-  { value: "fgts_digital", label: "FGTS Digital", color: "bg-orange-500" },
+  { value: "fgts", label: "FGTS Digital", color: "bg-orange-500" },
   { value: "parcelamentos", label: "Parcelamentos", color: "bg-pink-500" },
-  { value: "certidoes", label: "Certidões", color: "bg-cyan-500" },
+  { value: "situacao_fiscal", label: "Situação Fiscal / CND", color: "bg-cyan-500" },
   { value: "caixas_postais", label: "Caixas Postais", color: "bg-yellow-500" },
-  { value: "defis", label: "DEFIS", color: "bg-red-500" },
-  { value: "dirf", label: "DIRF", color: "bg-indigo-500" },
+  { value: "declaracoes", label: "Declarações (DEFIS/DIRF)", color: "bg-red-500" },
 ];
 
 const statusOptions = [
@@ -59,6 +57,172 @@ const statusOptions = [
   { value: "pendente", label: "Pendente", color: "bg-yellow-500" },
   { value: "atencao", label: "Atenção", color: "bg-red-500" },
 ];
+
+interface FiscalProcessFormProps {
+  onSuccess: () => void;
+  onCancel: () => void;
+  initialData?: any;
+  isEdit?: boolean;
+}
+
+function FiscalProcessForm({ onSuccess, onCancel, initialData, isEdit }: FiscalProcessFormProps) {
+  const [formData, setFormData] = useState({
+    companyId: initialData?.companyId || "",
+    processType: initialData?.processType || "simples_nacional",
+    referenceMonth: initialData?.referenceMonth || new Date().getMonth() + 1,
+    referenceYear: initialData?.referenceYear || new Date().getFullYear(),
+    status: initialData?.status || "em_dia",
+    notes: initialData?.notes || "",
+  });
+
+  const { data: companies } = trpc.companies.search.useQuery({});
+
+  const createProcess = trpc.fiscalProcesses.create.useMutation({
+    onSuccess: () => {
+      toast.success("Processo criado com sucesso!");
+      utils.fiscalProcesses.list.invalidate();
+      utils.fiscalProcesses.getStats.invalidate();
+      onSuccess();
+    },
+    onError: (error) => {
+      toast.error("Erro ao criar processo: " + error.message);
+    },
+  });
+
+  const updateProcess = trpc.fiscalProcesses.update.useMutation({
+    onSuccess: () => {
+      toast.success("Processo atualizado com sucesso!");
+      onSuccess();
+    },
+    onError: (error) => {
+      toast.error("Erro ao atualizar processo: " + error.message);
+    },
+  });
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!formData.companyId) {
+      toast.error("Selecione um cliente");
+      return;
+    }
+
+    if (isEdit) {
+      updateProcess.mutate({ id: initialData.id, ...formData });
+    } else {
+      createProcess.mutate(formData as any);
+    }
+  };
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-4 pt-4">
+      <div className="space-y-2">
+        <Label htmlFor="companyId">Cliente</Label>
+        <Select
+          disabled={isEdit}
+          value={formData.companyId}
+          onValueChange={(value) => setFormData({ ...formData, companyId: value })}
+        >
+          <SelectTrigger id="companyId">
+            <SelectValue placeholder="Selecione um cliente" />
+          </SelectTrigger>
+          <SelectContent>
+            {companies?.map((company) => (
+              <SelectItem key={company.id} value={company.id}>
+                {company.name} ({company.cnpj || company.cpf})
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      <div className="grid grid-cols-2 gap-4">
+        <div className="space-y-2">
+          <Label htmlFor="processType">Tipo de Processo</Label>
+          <Select
+            value={formData.processType}
+            onValueChange={(value) => setFormData({ ...formData, processType: value as any })}
+          >
+            <SelectTrigger id="processType">
+              <SelectValue placeholder="Selecione..." />
+            </SelectTrigger>
+            <SelectContent>
+              {processTypes.map((pt) => (
+                <SelectItem key={pt.value} value={pt.value}>
+                  {pt.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor="status">Status</Label>
+          <Select
+            value={formData.status}
+            onValueChange={(value) => setFormData({ ...formData, status: value as any })}
+          >
+            <SelectTrigger id="status">
+              <SelectValue placeholder="Selecione..." />
+            </SelectTrigger>
+            <SelectContent>
+              {statusOptions.map((s) => (
+                <SelectItem key={s.value} value={s.value}>
+                  {s.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-4">
+        <div className="space-y-2">
+          <Label htmlFor="referenceMonth">Mês de Referência (Competência)</Label>
+          <Input
+            id="referenceMonth"
+            type="number"
+            min="1"
+            max="12"
+            value={formData.referenceMonth}
+            onChange={(e) => setFormData({ ...formData, referenceMonth: parseInt(e.target.value) })}
+          />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="referenceYear">Ano de Referência</Label>
+          <Input
+            id="referenceYear"
+            type="number"
+            value={formData.referenceYear}
+            onChange={(e) => setFormData({ ...formData, referenceYear: parseInt(e.target.value) })}
+          />
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        <Label htmlFor="notes">Observações</Label>
+        <textarea
+          id="notes"
+          className="w-full min-h-[100px] p-3 rounded-md border border-input bg-background text-sm"
+          value={formData.notes}
+          onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+        />
+      </div>
+
+      <div className="flex justify-end gap-2 pt-4 border-t">
+        <Button type="button" variant="outline" onClick={onCancel}>
+          Cancelar
+        </Button>
+        <Button
+          type="submit"
+          disabled={createProcess.isPending || updateProcess.isPending}
+          className="bg-emerald-600 hover:bg-emerald-700 text-white"
+        >
+          {createProcess.isPending || updateProcess.isPending ? "Salvando..." : "Salvar Processo"}
+        </Button>
+      </div>
+    </form>
+  );
+}
 
 export default function ProcessosFiscais() {
   const [searchTerm, setSearchTerm] = useState("");
@@ -68,15 +232,26 @@ export default function ProcessosFiscais() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [selectedProcess, setSelectedProcess] = useState<any>(null);
 
-  const { data: processos, isLoading, refetch } = trpc.fiscalProcesses.listByType.useQuery(
-    { processType: tipoFiltro === "all" ? "pgdas" : tipoFiltro as any },
-    { enabled: tipoFiltro !== "all" }
+  const { data: processos, isLoading, refetch: refetchList } = trpc.fiscalProcesses.list.useQuery(
+    { processType: tipoFiltro }
   );
+
+  const { data: statsData, refetch: refetchStats } = trpc.fiscalProcesses.getStats.useQuery();
+
+  const handleRefresh = async () => {
+    const promise = Promise.all([refetchList(), refetchStats()]);
+    toast.promise(promise, {
+      loading: 'Atualizando dados...',
+      success: 'Dados atualizados!',
+      error: 'Erro ao atualizar dados',
+    });
+  };
 
   const updateProcess = trpc.fiscalProcesses.update.useMutation({
     onSuccess: () => {
       toast.success("Processo atualizado com sucesso!");
-      refetch();
+      utils.fiscalProcesses.list.invalidate();
+      utils.fiscalProcesses.getStats.invalidate();
       setDialogOpen(false);
     },
     onError: (error) => {
@@ -100,7 +275,8 @@ export default function ProcessosFiscais() {
 
   const filteredProcessos = processos?.filter((p: any) => {
     if (statusFiltro !== "all" && p.process.status !== statusFiltro) return false;
-    if (anoFiltro && p.process.referenceYear.toString() !== anoFiltro) return false;
+    // Only filter by year if p.process.referenceYear exists; otherwise show it to avoid missing items
+    if (anoFiltro && p.process.referenceYear != null && p.process.referenceYear.toString() !== anoFiltro) return false;
     if (searchTerm) {
       const search = searchTerm.toLowerCase();
       // Changed from client.razaoSocialNome and client.cnpjCpf to company.name and company.cnpj/cpf
@@ -125,11 +301,30 @@ export default function ProcessosFiscais() {
               Gerencie todos os processos fiscais dos seus clientes
             </p>
           </div>
-          <Button onClick={() => setDialogOpen(true)}>
+          <Button onClick={() => {
+            setSelectedProcess(null);
+            setDialogOpen(true);
+          }}>
             <Plus className="h-4 w-4 mr-2" />
             Novo Processo
           </Button>
         </div>
+
+        <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>{selectedProcess ? "Editar Processo" : "Novo Processo Fiscal"}</DialogTitle>
+            </DialogHeader>
+            <FiscalProcessForm
+              onSuccess={() => {
+                setDialogOpen(false);
+              }}
+              onCancel={() => setDialogOpen(false)}
+              initialData={selectedProcess}
+              isEdit={!!selectedProcess}
+            />
+          </DialogContent>
+        </Dialog>
 
         {/* Cards de Resumo */}
         <div className="grid grid-cols-4 gap-4">
@@ -228,7 +423,7 @@ export default function ProcessosFiscais() {
               </div>
 
               <div className="flex items-end">
-                <Button variant="outline" className="w-full" onClick={() => refetch()}>
+                <Button variant="outline" className="w-full" onClick={handleRefresh}>
                   <RefreshCw className="h-4 w-4 mr-2" />
                   Atualizar
                 </Button>
@@ -287,10 +482,12 @@ export default function ProcessosFiscais() {
                         </Badge>
                       </TableCell>
                       <TableCell>
-                        {item.process.referenceMonth && (
+                        {item.process.referenceMonth != null ? (
                           <span>{item.process.referenceMonth.toString().padStart(2, "0")}/</span>
+                        ) : (
+                          <span>??/</span>
                         )}
-                        {item.process.referenceYear}
+                        {item.process.referenceYear || "????"}
                       </TableCell>
                       <TableCell>{getStatusBadge(item.process.status)}</TableCell>
                       <TableCell>

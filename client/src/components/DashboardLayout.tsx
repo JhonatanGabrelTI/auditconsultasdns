@@ -41,6 +41,8 @@ const menuItems = [
     subItems: [
       { label: "Dashboard", path: "/monitor" },
       { label: "Simples Nacional | MEI", path: "/monitor/simples-nacional" },
+      { label: "Lucro Presumido", path: "/monitor/lucro-presumido" },
+      { label: "Lucro Real", path: "/monitor/lucro-real" },
       { label: "DCTFWeb", path: "/monitor/dctfweb" },
       { label: "FGTS Digital", path: "/fgts-digital" },
       { label: "Parcelamentos", path: "/monitor/parcelamentos" },
@@ -200,9 +202,14 @@ function DashboardLayoutContent({
                 <PanelLeft className="h-4 w-4 text-muted-foreground" />
               </button>
               {!isCollapsed ? (
-                <div className="flex items-center gap-2 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <img src="/logo.png" alt="Audit" className="h-8 w-auto object-contain" />
+                <div className="flex items-center gap-2.5 min-w-0 animate-in fade-in slide-in-from-left-2 duration-300">
+                  <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary shadow-lg shadow-primary/20 text-primary-foreground shrink-0 group-hover:scale-105 transition-transform">
+                    <Shield className="h-5 w-5 fill-current" />
+                  </div>
+                  <div className="flex flex-col justify-center leading-tight overflow-hidden">
+                    <span className="text-xl font-extrabold tracking-tighter text-foreground whitespace-nowrap">
+                      <span className="text-primary italic mr-0.5">i</span>Audit
+                    </span>
                   </div>
                 </div>
               ) : null}

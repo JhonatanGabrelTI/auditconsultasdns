@@ -1,3 +1,4 @@
+console.log("[Database] Loaded CHECKPOINT-DB-V3");
 import { eq, and, like, or, desc, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
@@ -58,9 +59,10 @@ let _client: postgres.Sql | null = null;
 export async function getDb() {
   if (!_db && process.env.DATABASE_URL) {
     try {
+      const isLocal = process.env.DATABASE_URL.includes("localhost") || process.env.DATABASE_URL.includes("127.0.0.1");
       _client = postgres(process.env.DATABASE_URL, {
         prepare: false, // Importante para Supabase
-        ssl: 'require', // Supabase requer SSL
+        ssl: isLocal ? false : 'require',
       });
       _db = drizzle(_client);
     } catch (error) {
@@ -73,7 +75,7 @@ export async function getDb() {
 
 // ==================== USER OPERATIONS ====================
 
-export async function upsertUser(user: InsertUser): Promise<void> {
+export async function upsertUser(user: InsertUser): Promise<typeof users.$inferSelect | undefined> {
   if (!user.openId) {
     throw new Error("User openId is required for upsert");
   }
@@ -123,10 +125,11 @@ export async function upsertUser(user: InsertUser): Promise<void> {
       updateSet.lastSignedIn = new Date();
     }
 
-    await db.insert(users).values(values).onConflictDoUpdate({
+    const result = await db.insert(users).values(values).onConflictDoUpdate({
       target: users.openId,
       set: updateSet,
-    });
+    }).returning();
+    return result[0];
   } catch (error) {
     console.error("[Database] Failed to upsert user:", error);
     throw error;
@@ -147,7 +150,7 @@ export async function getUserByOpenId(openId: string) {
 // ==================== COMPANY OPERATIONS ====================
 
 function generateUUID(): string {
-  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
     const r = Math.random() * 16 | 0;
     const v = c === 'x' ? r : (r & 0x3 | 0x8);
     return v.toString(16);
@@ -162,25 +165,65 @@ export async function createCompany(company: InsertCompany) {
   }
 
   try {
-    // Gerar UUID explicitamente
-    const id = generateUUID();
-    
-    // Garantir que emails e whatsapps sejam arrays
+    // Deixar o banco gerar o UUID se não houver id, ou usar o fornecido
     const data = {
-      id,
       ...company,
       emails: Array.isArray(company.emails) ? company.emails : [],
       whatsapps: Array.isArray(company.whatsapps) ? company.whatsapps : [],
     };
 
-    console.log("[Database] Inserting company with ID:", id);
+    console.log("[Database] Inserting company...");
     const result = await db.insert(companies).values(data as any).returning();
     console.log("[Database] Insert successful:", result[0]?.id);
     return result[0];
   } catch (error: any) {
-    console.error("[Database] Insert error:", error);
-    console.error("[Database] Error details:", error.detail, error.hint, error.code);
-    throw new Error("Failed query: " + (error.detail || error.message));
+    console.error("[Database] Insert error object:", JSON.stringify(error, Object.getOwnPropertyNames(error)));
+
+    // Postgres.js error properties
+    const code = error.code || error.severity;
+    const detail = error.detail || "";
+    const hint = error.hint || "";
+    const message = error.message || "";
+
+    console.error("[Database] Parsed details - Code:", code, "Detail:", detail, "Hint:", hint);
+
+    let userMessage = message;
+    if (code === '23503') {
+      userMessage = "O usuário associado não existe no banco (erro interno).";
+    } else if (code === '23505') {
+      if (detail.includes('cnpj')) {
+        userMessage = "Este CNPJ já está cadastrado em outro cliente.";
+      } else if (detail.includes('cpf')) {
+        userMessage = "Este CPF já está cadastrado em outro cliente.";
+      } else {
+        userMessage = "Já existe um registro com estes dados únicos.";
+      }
+    }
+
+    throw new Error(`[DB-ERR-${code || 'UNK'}]: ${userMessage} ${detail ? '(' + detail + ')' : ''}`);
+  }
+}
+
+export async function bulkCreateCompanies(companiesData: any[]) {
+  const db = await getDb();
+  if (!db) throw new Error("Database connection not available.");
+
+  try {
+    const dataToInsert = companiesData.map(c => ({
+      id: generateUUID(),
+      ...c,
+      emails: Array.isArray(c.emails) ? c.emails : [],
+      whatsapps: Array.isArray(c.whatsapps) ? c.whatsapps : [],
+      active: true,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    }));
+
+    const result = await db.insert(companies).values(dataToInsert as any).returning();
+    return result;
+  } catch (error: any) {
+    console.error("[Database] Bulk insert error:", error);
+    throw new Error(`[DB-ERR-BULK]: Falha ao importar clientes em lote. Verifique se há CNPJs duplicados. (${error.message})`);
   }
 }
 
@@ -267,6 +310,28 @@ export async function updateDigitalCertificate(id: number, data: Partial<InsertD
   return await db.update(digitalCertificates).set(data).where(eq(digitalCertificates.id, id));
 }
 
+export async function deleteDigitalCertificate(id: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  return await db.delete(digitalCertificates).where(eq(digitalCertificates.id, id));
+}
+
+export async function getDigitalCertificatesByUserId(userId: number) {
+  const db = await getDb();
+  if (!db) return [];
+
+  return await db
+    .select({
+      certificate: digitalCertificates,
+      company: companies
+    })
+    .from(digitalCertificates)
+    .innerJoin(companies, eq(digitalCertificates.companyId, companies.id))
+    .where(eq(companies.userId, userId))
+    .orderBy(desc(digitalCertificates.validUntil));
+}
+
 // ==================== PROCURACAO OPERATIONS ====================
 
 export async function createProcuracao(procuracao: InsertProcuracao) {
@@ -290,6 +355,28 @@ export async function updateProcuracao(id: number, data: Partial<InsertProcuraca
   return await db.update(procuracoes).set(data).where(eq(procuracoes.id, id));
 }
 
+export async function deleteProcuracao(id: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  return await db.delete(procuracoes).where(eq(procuracoes.id, id));
+}
+
+export async function getProcuracoesByUserId(userId: number) {
+  const db = await getDb();
+  if (!db) return [];
+
+  return await db
+    .select({
+      procuracao: procuracoes,
+      company: companies
+    })
+    .from(procuracoes)
+    .innerJoin(companies, eq(procuracoes.companyId, companies.id))
+    .where(eq(companies.userId, userId))
+    .orderBy(desc(procuracoes.endDate));
+}
+
 // ==================== FISCAL PROCESS OPERATIONS ====================
 
 export async function createFiscalProcess(process: InsertFiscalProcess) {
@@ -306,6 +393,21 @@ export async function getFiscalProcessesByCompanyId(companyId: string) {
   return await db.select().from(fiscalProcesses).where(eq(fiscalProcesses.companyId, companyId)).orderBy(desc(fiscalProcesses.createdAt));
 }
 
+export async function getAllFiscalProcesses(userId: number) {
+  const db = await getDb();
+  if (!db) return [];
+
+  return await db
+    .select({
+      process: fiscalProcesses,
+      company: companies
+    })
+    .from(fiscalProcesses)
+    .innerJoin(companies, eq(fiscalProcesses.companyId, companies.id))
+    .where(eq(companies.userId, userId))
+    .orderBy(desc(fiscalProcesses.createdAt));
+}
+
 export async function getFiscalProcessesByType(userId: number, processType: string) {
   const db = await getDb();
   if (!db) return [];
@@ -320,6 +422,24 @@ export async function getFiscalProcessesByType(userId: number, processType: stri
     .where(and(
       eq(companies.userId, userId),
       eq(fiscalProcesses.processType, processType as any)
+    ))
+    .orderBy(desc(fiscalProcesses.createdAt));
+}
+
+export async function getFiscalProcessesByTaxRegime(userId: number, taxRegime: string) {
+  const db = await getDb();
+  if (!db) return [];
+
+  return await db
+    .select({
+      process: fiscalProcesses,
+      company: companies
+    })
+    .from(fiscalProcesses)
+    .innerJoin(companies, eq(fiscalProcesses.companyId, companies.id))
+    .where(and(
+      eq(companies.userId, userId),
+      eq(companies.taxRegime, taxRegime as any)
     ))
     .orderBy(desc(fiscalProcesses.createdAt));
 }
@@ -385,6 +505,24 @@ export async function getDeclarationsByType(userId: number, declarationType: str
     .where(and(
       eq(companies.userId, userId),
       eq(declarations.declarationType, declarationType as any)
+    ))
+    .orderBy(desc(declarations.createdAt));
+}
+
+export async function getDeclarationsByTaxRegime(userId: number, taxRegime: string) {
+  const db = await getDb();
+  if (!db) return [];
+
+  return await db
+    .select({
+      declaration: declarations,
+      company: companies
+    })
+    .from(declarations)
+    .innerJoin(companies, eq(declarations.companyId, companies.id))
+    .where(and(
+      eq(companies.userId, userId),
+      eq(companies.taxRegime, taxRegime as any)
     ))
     .orderBy(desc(declarations.createdAt));
 }
@@ -667,4 +805,19 @@ export async function getPendenciesByCompanyId(companyId: string): Promise<Pende
   const db = await getDb();
   if (!db) return [];
   return await db.select().from(pendencies).where(eq(pendencies.companyId, companyId)).orderBy(desc(pendencies.detectedAt));
+}
+
+export async function getPendenciesByUserId(userId: number) {
+  const db = await getDb();
+  if (!db) return [];
+
+  return await db
+    .select({
+      pendency: pendencies,
+      company: companies
+    })
+    .from(pendencies)
+    .innerJoin(companies, eq(pendencies.companyId, companies.id))
+    .where(eq(companies.userId, userId))
+    .orderBy(desc(pendencies.detectedAt));
 }

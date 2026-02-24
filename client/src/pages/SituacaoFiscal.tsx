@@ -48,34 +48,35 @@ import {
   Trash2,
   UserPlus,
 } from "lucide-react";
-import { useState } from "react";
+import { useState, useTransition } from "react";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 
 export default function SituacaoFiscal() {
+  const [isPending, startTransition] = useTransition();
   const [searchTerm, setSearchTerm] = useState("");
   const [situacaoFilter, setSituacaoFilter] = useState("all");
   const [certidaoFilter, setCertidaoFilter] = useState("all");
   const [monitoredClients, setMonitoredClients] = useState<any[]>([]);
-  
+
   // Dialogs
   const [novaConsultaOpen, setNovaConsultaOpen] = useState(false);
   const [associarClientesOpen, setAssociarClientesOpen] = useState(false);
   const [addClientOpen, setAddClientOpen] = useState(false);
-  
+
   // Nova consulta manual
   const [consultaCnpj, setConsultaCnpj] = useState("");
   const [consultaRazaoSocial, setConsultaRazaoSocial] = useState("");
   const [tipoConsultaManual, setTipoConsultaManual] = useState("cnd_federal");
   const [isConsulting, setIsConsulting] = useState(false);
-  
+
   // Associar clientes
   const [selectedClientsToAdd, setSelectedClientsToAdd] = useState<number[]>([]);
   const [searchClientesAssociar, setSearchClientesAssociar] = useState("");
 
   const { data: companies } = trpc.companies.list.useQuery();
   const { data: minhasConsultas, refetch: refetchConsultas } = trpc.apiConsultas.minhasConsultas.useQuery();
-  
+
   const consultarCNDFederal = trpc.apiConsultas.consultarCNDFederal.useMutation();
   const consultarCNDEstadual = trpc.apiConsultas.consultarCNDEstadual.useMutation();
   const consultarFGTS = trpc.apiConsultas.consultarRegularidadeFGTS.useMutation();
@@ -99,12 +100,17 @@ export default function SituacaoFiscal() {
   const filteredClientsToAdd = companies?.filter((client: any) => {
     // Não mostrar clientes já monitorados
     if (monitoredClients.some((mc: any) => mc.id === client.id)) return false;
-    
+
     if (searchClientesAssociar) {
       const search = searchClientesAssociar.toLowerCase();
+      const clientName = client.name?.toLowerCase() || "";
+      const clientCnpj = client.cnpj?.toLowerCase() || "";
+      const clientCpf = client.cpf?.toLowerCase() || "";
+
       return (
-        client.razaoSocialNome?.toLowerCase().includes(search) ||
-        client.cnpjCpf?.toLowerCase().includes(search)
+        clientName.includes(search) ||
+        clientCnpj.includes(search) ||
+        clientCpf.includes(search)
       );
     }
     return true;
@@ -117,22 +123,22 @@ export default function SituacaoFiscal() {
     }
 
     setIsConsulting(true);
-    
+
     try {
       // Consulta apenas no InfoSimples (sem salvar no banco pois não tem clientId)
       toast.success(`Consulta de ${tipoConsultaManual} realizada para ${consultaCnpj}`);
-      
+
       // Aqui você poderia fazer uma consulta direta à API InfoSimples
       // Por enquanto vamos apenas simular e adicionar à lista de monitorados temporariamente
       const newMonitoredClient = {
         id: Date.now(), // ID temporário
-        cnpjCpf: consultaCnpj,
-        razaoSocialNome: consultaRazaoSocial || "Cliente Consultado",
+        cnpj: consultaCnpj,
+        name: consultaRazaoSocial || "Cliente Consultado",
         tipoConsulta: tipoConsultaManual,
         ultimaSituacao: "pendente",
         dataConsulta: new Date().toISOString(),
       };
-      
+
       setMonitoredClients([...monitoredClients, newMonitoredClient]);
       setNovaConsultaOpen(false);
       setConsultaCnpj("");
@@ -178,17 +184,17 @@ export default function SituacaoFiscal() {
 
   const handleConsultarCliente = async (client: any) => {
     try {
-      toast.info(`Consultando ${client.razaoSocialNome}...`);
-      
+      toast.info(`Consultando ${client.name}...`);
+
       // Realizar consultas
       let resultados: any = {};
-      
+
       try {
         resultados.cndFederal = await consultarCNDFederal.mutateAsync({ companyId: client.id });
       } catch (e) {
         resultados.cndFederal = { sucesso: false, mensagem: "Erro" };
       }
-      
+
       if (client.inscricaoEstadual) {
         try {
           resultados.cndEstadual = await consultarCNDEstadual.mutateAsync({ companyId: client.id });
@@ -196,7 +202,7 @@ export default function SituacaoFiscal() {
           resultados.cndEstadual = { sucesso: false, mensagem: "Erro" };
         }
       }
-      
+
       if (client.personType === "juridica") {
         try {
           resultados.fgts = await consultarFGTS.mutateAsync({ companyId: client.id });
@@ -206,16 +212,16 @@ export default function SituacaoFiscal() {
       }
 
       // Atualizar situação
-      const situacao = resultados.cndFederal?.situacao?.toLowerCase().includes("regular") 
-        ? "regular" 
+      const situacao = resultados.cndFederal?.situacao?.toLowerCase().includes("regular")
+        ? "regular"
         : "irregular";
-      
-      const updatedClients = monitoredClients.map((c: any) => 
-        c.id === client.id 
+
+      const updatedClients = monitoredClients.map((c: any) =>
+        c.id === client.id
           ? { ...c, ultimaSituacao: situacao, resultados, dataConsulta: new Date().toISOString() }
           : c
       );
-      
+
       setMonitoredClients(updatedClients);
       refetchConsultas();
       toast.success("Consulta realizada com sucesso!");
@@ -243,7 +249,7 @@ export default function SituacaoFiscal() {
             </div>
             <h1 className="text-xl font-semibold text-foreground">Consultas realizadas</h1>
           </div>
-          
+
           <div className="flex items-center gap-4">
             {/* Badge */}
             <div className="flex items-center gap-2 bg-blue-50 text-blue-700 px-4 py-2 rounded-lg border border-blue-200">
@@ -350,35 +356,35 @@ export default function SituacaoFiscal() {
 
         {/* Botões de Ação */}
         <div className="flex flex-wrap gap-3">
-          <Button 
-            variant="outline" 
+          <Button
+            variant="outline"
             className="gap-2"
             onClick={() => setNovaConsultaOpen(true)}
           >
             <FileCheck className="h-4 w-4" />
             Nova Consulta
           </Button>
-          
-          <Button 
-            variant="outline" 
+
+          <Button
+            variant="outline"
             className="gap-2"
             onClick={() => setAddClientOpen(true)}
           >
             <UserPlus className="h-4 w-4" />
             Adicionar Cliente
           </Button>
-          
-          <Button 
-            variant="default" 
+
+          <Button
+            variant="default"
             className="gap-2 bg-slate-800 hover:bg-slate-900"
             onClick={() => setAssociarClientesOpen(true)}
           >
             <Link className="h-4 w-4" />
             Associar clientes
           </Button>
-          
-          <Button 
-            variant="default" 
+
+          <Button
+            variant="default"
             className="gap-2 bg-emerald-600 hover:bg-emerald-700"
             onClick={handleAtualizarTodas}
           >
@@ -401,11 +407,17 @@ export default function SituacaoFiscal() {
               />
             </div>
           </div>
-          
+
           <div className="flex items-end gap-3">
             <div>
               <label className="text-xs text-muted-foreground mb-1 block">Situação</label>
-              <Select value={situacaoFilter} onValueChange={setSituacaoFilter}>
+              <Select value={situacaoFilter} onValueChange={(value) => {
+                setTimeout(() => {
+                  startTransition(() => {
+                    setSituacaoFilter(value);
+                  });
+                }, 0);
+              }}>
                 <SelectTrigger className="w-36">
                   <SelectValue placeholder="Todos" />
                 </SelectTrigger>
@@ -420,7 +432,13 @@ export default function SituacaoFiscal() {
 
             <div>
               <label className="text-xs text-muted-foreground mb-1 block">Certidão</label>
-              <Select value={certidaoFilter} onValueChange={setCertidaoFilter}>
+              <Select value={certidaoFilter} onValueChange={(value) => {
+                setTimeout(() => {
+                  startTransition(() => {
+                    setCertidaoFilter(value);
+                  });
+                }, 0);
+              }}>
                 <SelectTrigger className="w-40">
                   <SelectValue placeholder="Todas" />
                 </SelectTrigger>
@@ -506,8 +524,8 @@ export default function SituacaoFiscal() {
                           ? new Date(client.resultados.cndFederal.dataValidade).toLocaleDateString("pt-BR")
                           : "-"}
                       </TableCell>
-                      <TableCell>{client.cnpjCpf}</TableCell>
-                      <TableCell>{client.razaoSocialNome}</TableCell>
+                      <TableCell>{client.cnpj || client.cpf}</TableCell>
+                      <TableCell>{client.name}</TableCell>
                       <TableCell>
                         {client.dataConsulta
                           ? new Date(client.dataConsulta).toLocaleDateString("pt-BR")
@@ -551,7 +569,13 @@ export default function SituacaoFiscal() {
             <div className="space-y-4 pt-4">
               <div>
                 <Label htmlFor="tipo-consulta">Tipo de Consulta</Label>
-                <Select value={tipoConsultaManual} onValueChange={setTipoConsultaManual}>
+                <Select value={tipoConsultaManual} onValueChange={(value) => {
+                  setTimeout(() => {
+                    startTransition(() => {
+                      setTipoConsultaManual(value);
+                    });
+                  }, 0);
+                }}>
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
@@ -562,7 +586,7 @@ export default function SituacaoFiscal() {
                   </SelectContent>
                 </Select>
               </div>
-              
+
               <div>
                 <Label htmlFor="cnpj">CNPJ</Label>
                 <Input
@@ -572,7 +596,7 @@ export default function SituacaoFiscal() {
                   onChange={(e) => setConsultaCnpj(e.target.value)}
                 />
               </div>
-              
+
               <div>
                 <Label htmlFor="razao-social">Razão Social (opcional)</Label>
                 <Input
@@ -582,12 +606,12 @@ export default function SituacaoFiscal() {
                   onChange={(e) => setConsultaRazaoSocial(e.target.value)}
                 />
               </div>
-              
+
               <div className="flex justify-end gap-2 pt-4">
                 <Button variant="outline" onClick={() => setNovaConsultaOpen(false)}>
                   Cancelar
                 </Button>
-                <Button 
+                <Button
                   onClick={handleNovaConsulta}
                   disabled={isConsulting}
                   className="bg-emerald-600 hover:bg-emerald-700"
@@ -628,7 +652,7 @@ export default function SituacaoFiscal() {
                   onChange={(e) => setSearchClientesAssociar(e.target.value)}
                 />
               </div>
-              
+
               <div className="border rounded-lg overflow-hidden">
                 <div className="max-h-96 overflow-auto">
                   <Table>
@@ -665,7 +689,7 @@ export default function SituacaoFiscal() {
                       ) : filteredClientsToAdd?.length === 0 ? (
                         <TableRow>
                           <TableCell colSpan={4} className="h-32 text-center text-muted-foreground">
-                            {companies?.length === 0 
+                            {companies?.length === 0
                               ? "Nenhum cliente cadastrado. Cadastre clientes primeiro."
                               : "Todos os clientes já estão associados."}
                           </TableCell>
@@ -679,11 +703,11 @@ export default function SituacaoFiscal() {
                                 onCheckedChange={() => toggleClientToAdd(client.id)}
                               />
                             </TableCell>
-                            <TableCell>{client.cnpjCpf}</TableCell>
-                            <TableCell>{client.razaoSocialNome}</TableCell>
+                            <TableCell>{client.cnpj || client.cpf}</TableCell>
+                            <TableCell>{client.name}</TableCell>
                             <TableCell>
                               <Badge variant="outline">
-                                {client.regimeTributario?.replace(/_/g, " ") || "-"}
+                                {client.taxRegime?.replace(/_/g, " ") || "-"}
                               </Badge>
                             </TableCell>
                           </TableRow>
@@ -693,7 +717,7 @@ export default function SituacaoFiscal() {
                   </Table>
                 </div>
               </div>
-              
+
               <div className="flex justify-between items-center">
                 <span className="text-sm text-muted-foreground">
                   {selectedClientsToAdd.length} cliente(s) selecionado(s)
@@ -702,7 +726,7 @@ export default function SituacaoFiscal() {
                   <Button variant="outline" onClick={() => setAssociarClientesOpen(false)}>
                     Cancelar
                   </Button>
-                  <Button 
+                  <Button
                     onClick={handleAssociarClientes}
                     disabled={selectedClientsToAdd.length === 0}
                     className="bg-emerald-600 hover:bg-emerald-700"
@@ -729,8 +753,8 @@ export default function SituacaoFiscal() {
               <p className="text-sm text-muted-foreground">
                 Para adicionar um cliente completo, vá até a página de Clientes no menu lateral.
               </p>
-              <Button 
-                className="w-full" 
+              <Button
+                className="w-full"
                 onClick={() => {
                   setAddClientOpen(false);
                   window.location.href = "/clientes";
@@ -747,8 +771,8 @@ export default function SituacaoFiscal() {
                   <span className="bg-background px-2 text-muted-foreground">ou</span>
                 </div>
               </div>
-              <Button 
-                variant="outline" 
+              <Button
+                variant="outline"
                 className="w-full"
                 onClick={() => {
                   setAddClientOpen(false);

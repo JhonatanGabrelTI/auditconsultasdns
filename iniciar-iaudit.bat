@@ -1,5 +1,5 @@
 @echo off
-cd /d "C:\Users\flavi\Downloads\Downloads\IAudit01\Iauditconsultoria"
+cd /d "%~dp0"
 cls
 echo ============================================
 echo  INICIANDO SISTEMA IAudit

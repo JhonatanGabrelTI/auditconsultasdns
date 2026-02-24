@@ -109,11 +109,27 @@ export const appRouter = router({
       .mutation(async ({ input }) => {
         return await db.deleteCompany(input.id);
       }),
+
+    bulkCreate: protectedProcedure
+      .input(z.array(z.any()))
+      .mutation(async ({ ctx, input }) => {
+        const data = input.map(item => ({
+          ...item,
+          userId: ctx.user.id,
+          cnpj: item.cnpj ? item.cnpj.replace(/\D/g, "") : undefined,
+          cpf: item.cpf ? item.cpf.replace(/\D/g, "") : undefined,
+        }));
+        return await db.bulkCreateCompanies(data);
+      }),
   }),
 
   // ==================== DIGITAL CERTIFICATE ROUTES ====================
   certificates: router({
-    listByCompany: protectedProcedure // Renamed from listByClient
+    listAll: protectedProcedure.query(async ({ ctx }) => {
+      return await db.getDigitalCertificatesByUserId(ctx.user.id);
+    }),
+
+    listByCompany: protectedProcedure
       .input(z.object({ companyId: z.string().uuid() }))
       .query(async ({ input }) => {
         return await db.getDigitalCertificatesByCompanyId(input.companyId);
@@ -130,7 +146,11 @@ export const appRouter = router({
         status: z.enum(["integrado", "a_vencer", "atencao"]),
       }))
       .mutation(async ({ input }) => {
-        return await db.createDigitalCertificate(input);
+        const { certificateName, ...rest } = input;
+        return await db.createDigitalCertificate({
+          name: certificateName || "Certificado",
+          ...rest,
+        });
       }),
 
     update: protectedProcedure
@@ -147,10 +167,20 @@ export const appRouter = router({
         const { id, ...data } = input;
         return await db.updateDigitalCertificate(id, data);
       }),
+
+    delete: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input }) => {
+        return await db.deleteDigitalCertificate(input.id);
+      }),
   }),
 
   // ==================== PROCURACAO ROUTES ====================
   procuracoes: router({
+    listAll: protectedProcedure.query(async ({ ctx }) => {
+      return await db.getProcuracoesByUserId(ctx.user.id);
+    }),
+
     listByCompany: protectedProcedure
       .input(z.object({ companyId: z.string().uuid() }))
       .query(async ({ input }) => {
@@ -165,9 +195,15 @@ export const appRouter = router({
         dataEmissao: z.date().optional(),
         dataValidade: z.date().optional(),
         status: z.enum(["ativa", "vencida", "revogada"]).optional(),
+        cpfRepresentante: z.string().optional(),
+        nomeRepresentante: z.string().optional(),
       }))
       .mutation(async ({ input }) => {
-        return await db.createProcuracao(input);
+        return await db.createProcuracao({
+          ...input,
+          cpfRepresentante: input.cpfRepresentante || "",
+          nomeRepresentante: input.nomeRepresentante || "",
+        });
       }),
 
     update: protectedProcedure
@@ -183,6 +219,12 @@ export const appRouter = router({
         const { id, ...data } = input;
         return await db.updateProcuracao(id, data);
       }),
+
+    delete: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input }) => {
+        return await db.deleteProcuracao(input.id);
+      }),
   }),
 
   // ==================== FISCAL PROCESS ROUTES ====================
@@ -193,9 +235,20 @@ export const appRouter = router({
         return await db.getFiscalProcessesByCompanyId(input.companyId);
       }),
 
+    list: protectedProcedure
+      .input(z.object({
+        processType: z.string().optional()
+      }))
+      .query(async ({ ctx, input }) => {
+        if (input.processType && input.processType !== "all") {
+          return await db.getFiscalProcessesByType(ctx.user.id, input.processType);
+        }
+        return await db.getAllFiscalProcesses(ctx.user.id);
+      }),
+
     listByType: protectedProcedure
       .input(z.object({
-        processType: z.enum(["pgdas", "pgmei", "dctfweb", "fgts_digital", "parcelamentos", "certidoes", "caixas_postais", "defis", "dirf"])
+        processType: z.enum(["simples_nacional", "dctfweb", "fgts", "parcelamentos", "situacao_fiscal", "caixas_postais", "declaracoes"])
       }))
       .query(async ({ ctx, input }) => {
         return await db.getFiscalProcessesByType(ctx.user.id, input.processType);
@@ -208,7 +261,7 @@ export const appRouter = router({
     create: protectedProcedure
       .input(z.object({
         companyId: z.string().uuid(),
-        processType: z.enum(["pgdas", "pgmei", "dctfweb", "fgts_digital", "parcelamentos", "certidoes", "caixas_postais", "defis", "dirf"]),
+        processType: z.enum(["simples_nacional", "dctfweb", "fgts", "parcelamentos", "situacao_fiscal", "caixas_postais", "declaracoes"]),
         referenceMonth: z.number().optional(),
         referenceYear: z.number(),
         status: z.enum(["em_dia", "pendente", "atencao"]).optional(),
@@ -217,7 +270,10 @@ export const appRouter = router({
         notes: z.string().optional(),
       }))
       .mutation(async ({ input }) => {
-        return await db.createFiscalProcess(input);
+        return await db.createFiscalProcess({
+          ...input,
+          processType: input.processType as any,
+        });
       }),
 
     update: protectedProcedure
@@ -231,6 +287,12 @@ export const appRouter = router({
       .mutation(async ({ input }) => {
         const { id, ...data } = input;
         return await db.updateFiscalProcess(id, data);
+      }),
+
+    listByRegime: protectedProcedure
+      .input(z.object({ taxRegime: z.string() }))
+      .query(async ({ ctx, input }) => {
+        return await db.getFiscalProcessesByTaxRegime(ctx.user.id, input.taxRegime);
       }),
   }),
 
@@ -262,12 +324,13 @@ export const appRouter = router({
       .input(z.object({
         companyId: z.string().uuid(),
         processId: z.number().optional(),
-        declarationType: z.enum(["pgdas", "pgmei", "dctfweb", "fgts_digital", "defis", "dirf"]),
+        declarationType: z.enum(["pgdasd", "pgmei", "dctfweb", "fgts_digital", "defis", "dirf"]),
         referenceMonth: z.number().optional(),
         referenceYear: z.number(),
         declared: z.boolean().optional(),
         declarationDate: z.date().optional(),
         protocolNumber: z.string().optional(),
+        period: z.string(),
       }))
       .mutation(async ({ input }) => {
         return await db.createDeclaration(input);
@@ -283,6 +346,12 @@ export const appRouter = router({
       .mutation(async ({ input }) => {
         const { id, ...data } = input;
         return await db.updateDeclaration(id, data);
+      }),
+
+    listByRegime: protectedProcedure
+      .input(z.object({ taxRegime: z.string() }))
+      .query(async ({ ctx, input }) => {
+        return await db.getDeclarationsByTaxRegime(ctx.user.id, input.taxRegime);
       }),
   }),
 
@@ -356,6 +425,7 @@ export const appRouter = router({
         return await db.createNotification({
           ...input,
           userId: ctx.user.id,
+          processType: input.processType as any,
         });
       }),
 
@@ -415,6 +485,8 @@ export const appRouter = router({
         scheduleType: z.enum(["das_simples", "das_mei", "parcelamentos", "dctfweb", "declaracoes"]),
         dayOfMonth: z.number().min(1).max(31),
         active: z.boolean().optional(),
+        time: z.string(),
+        processType: z.enum(["simples_nacional", "dctfweb", "fgts", "parcelamentos", "situacao_fiscal", "caixas_postais", "declaracoes"]),
       }))
       .mutation(async ({ ctx, input }) => {
         return await db.createSchedule({
@@ -725,6 +797,11 @@ export const appRouter = router({
       .query(async ({ input }) => {
         return await db.getPendenciesByCompanyId(input.companyId);
       }),
+
+    listAll: protectedProcedure.query(async ({ ctx }) => {
+      // Need a global pendency query in db.ts? Let's check.
+      return await db.getPendenciesByUserId(ctx.user.id);
+    }),
 
     create: protectedProcedure
       .input(z.object({

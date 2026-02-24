@@ -11,9 +11,9 @@ const DialogCompositionContext = React.createContext<{
   markCompositionEnd: () => void;
 }>({
   isComposing: () => false,
-  setComposing: () => {},
+  setComposing: () => { },
   justEndedComposing: () => false,
-  markCompositionEnd: () => {},
+  markCompositionEnd: () => { },
 });
 
 export const useDialogComposition = () =>
@@ -45,6 +45,14 @@ function Dialog({
     }),
     []
   );
+
+  React.useEffect(() => {
+    return () => {
+      if (endTimerRef.current) {
+        clearTimeout(endTimerRef.current);
+      }
+    };
+  }, []);
 
   return (
     <DialogCompositionContext.Provider value={contextValue}>

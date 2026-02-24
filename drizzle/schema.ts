@@ -159,9 +159,10 @@ export const fiscalProcesses = pgTable("fiscalProcesses", {
     ]
   }).notNull(),
   status: text("status", { enum: ["em_dia", "pendente", "atencao"] }).default("em_dia").notNull(),
-  details: text("details"), // JSON string
-  lastCheck: timestamp("lastCheck"),
-  nextCheck: timestamp("nextCheck"),
+  referenceYear: integer("referenceYear"),
+  referenceMonth: integer("referenceMonth"),
+  notes: text("notes"),
+  dueDate: timestamp("dueDate"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().$onUpdate(() => new Date()).notNull(),
 });
