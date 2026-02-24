@@ -564,6 +564,8 @@ export const appRouter = router({
             tipoConsulta: "cnd_federal",
             sucesso: false,
             mensagemErro: error.message,
+            situacao: "ERRO",
+            respostaCompleta: JSON.stringify({ error: error.message, timestamp: new Date().toISOString() }),
           });
           throw error;
         }
@@ -623,6 +625,8 @@ export const appRouter = router({
             tipoConsulta: "cnd_estadual",
             sucesso: false,
             mensagemErro: error.message,
+            situacao: "ERRO",
+            respostaCompleta: JSON.stringify({ error: error.message, timestamp: new Date().toISOString() }),
           });
           throw error;
         }
@@ -679,6 +683,8 @@ export const appRouter = router({
             tipoConsulta: "regularidade_fgts",
             sucesso: false,
             mensagemErro: error.message,
+            situacao: "ERRO",
+            respostaCompleta: JSON.stringify({ error: error.message, timestamp: new Date().toISOString() }),
           });
           throw error;
         }

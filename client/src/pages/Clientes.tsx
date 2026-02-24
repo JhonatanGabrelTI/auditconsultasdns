@@ -744,9 +744,15 @@ export default function Clientes() {
                   <TableRow key={client.id} className="border-border hover:bg-slate-800/50">
                     <TableCell>
                       <div className="flex items-center gap-2">
-                        <Badge variant="secondary" className="bg-slate-100 text-slate-600 border border-slate-200 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-700">
-                          Não Integrado
-                        </Badge>
+                        {client.certificatePath ? (
+                          <Badge variant="secondary" className="bg-emerald-100 text-emerald-700 border border-emerald-200 dark:bg-emerald-950/30 dark:text-emerald-500 dark:border-emerald-900/50">
+                            Integrado
+                          </Badge>
+                        ) : (
+                          <Badge variant="secondary" className="bg-slate-100 text-slate-600 border border-slate-200 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-700">
+                            Não Integrado
+                          </Badge>
+                        )}
                         <Button
                           size="icon"
                           variant="ghost"

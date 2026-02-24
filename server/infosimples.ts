@@ -4,7 +4,58 @@ const INFOSIMPLES_API_TOKEN = process.env.INFOSIMPLES_API_TOKEN;
 const BASE_URL = "https://api.infosimples.com/api/v2/consultas";
 
 if (!INFOSIMPLES_API_TOKEN) {
-  console.warn("[InfoSimples] API token not configured");
+  console.warn("[InfoSimples] API token not configured. Using mock data in development.");
+}
+
+const isDev = process.env.NODE_ENV === "development";
+
+function getMockCNDFederal(documento: string): CNDFederalResponse {
+  return {
+    code: 200,
+    code_message: "Consulta realizada com sucesso (MOCK)",
+    data: {
+      situacao: "REGULAR",
+      cnpj: documento,
+      razao_social: "EMPRESA DE TESTE LTDA",
+      numero_certidao: "2024.000123456-78",
+      data_emissao: new Date().toISOString(),
+      data_validade: new Date(Date.now() + 180 * 24 * 60 * 60 * 1000).toISOString(),
+      validade_fim_data: new Date(Date.now() + 180 * 24 * 60 * 60 * 1000).toISOString(),
+      site_receipt: "https://receita.fazenda.gov.br/recibo/mock"
+    }
+  };
+}
+
+function getMockCNDEstadual(ie: string): CNDEstadualResponse {
+  return {
+    code: 200,
+    code_message: "Consulta realizada com sucesso (MOCK)",
+    data: {
+      situacao: "SEM PENDÊNCIAS",
+      inscricao_estadual: ie,
+      razao_social: "EMPRESA ESTADUAL LTDA",
+      numero_certidao: "IE-PR-999888/2024",
+      data_emissao: new Date().toISOString(),
+      data_validade: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString(),
+      validade_fim_data: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString(),
+    }
+  };
+}
+
+function getMockFGTS(cnpj: string): RegularidadeFGTSResponse {
+  return {
+    code: 200,
+    code_message: "Consulta realizada com sucesso (MOCK)",
+    data: {
+      situacao: "REGULAR",
+      cnpj: cnpj,
+      razao_social: "EMPRESA FGTS TESTE",
+      numero_crf: "202402240123456789",
+      data_emissao: new Date().toISOString(),
+      data_validade: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+      validade_fim_data: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+    }
+  };
 }
 
 export interface CNDFederalResponse {
@@ -61,6 +112,10 @@ export async function consultarCNDFederal(
   dataNascimento?: string,
   preferenciaEmissao: "nova" | "2via" = "nova"
 ): Promise<CNDFederalResponse> {
+  if (!INFOSIMPLES_API_TOKEN && isDev) {
+    return getMockCNDFederal(documento);
+  }
+
   if (!INFOSIMPLES_API_TOKEN) {
     throw new Error("InfoSimples API token not configured");
   }
@@ -110,6 +165,10 @@ export async function consultarCNDEstadual(
   inscricaoEstadual: string,
   cnpj?: string
 ): Promise<CNDEstadualResponse> {
+  if (!INFOSIMPLES_API_TOKEN && isDev) {
+    return getMockCNDEstadual(inscricaoEstadual);
+  }
+
   if (!INFOSIMPLES_API_TOKEN) {
     throw new Error("InfoSimples API token not configured");
   }
@@ -146,6 +205,10 @@ export async function consultarCNDEstadual(
  * Consulta Regularidade FGTS (Caixa) via InfoSimples
  */
 export async function consultarRegularidadeFGTS(cnpj: string): Promise<RegularidadeFGTSResponse> {
+  if (!INFOSIMPLES_API_TOKEN && isDev) {
+    return getMockFGTS(cnpj);
+  }
+
   if (!INFOSIMPLES_API_TOKEN) {
     throw new Error("InfoSimples API token not configured");
   }
