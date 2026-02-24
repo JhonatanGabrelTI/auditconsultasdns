@@ -1,13 +1,37 @@
 import axios from "axios";
 
-const INFOSIMPLES_API_TOKEN = process.env.INFOSIMPLES_API_TOKEN;
-const BASE_URL = "https://api.infosimples.com/api/v2/consultas";
+import { config } from "dotenv";
+import path from "path";
+import { fileURLToPath } from "url";
+import { createRequire } from "module";
 
-if (!INFOSIMPLES_API_TOKEN) {
-  console.warn("[InfoSimples] API token not configured. Using mock data in development.");
-}
+const require = createRequire(import.meta.url);
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
-const isDev = process.env.NODE_ENV === "development";
+// Ensure env is loaded synchronously from project root
+const rootEnvPath = path.resolve(__dirname, "../.env");
+config({ path: rootEnvPath });
+
+const getApiToken = () => {
+  let token = process.env.INFOSIMPLES_API_TOKEN;
+  if (!token) {
+    // Try to reload synchronously as a last resort
+    try {
+      const dotenv = require("dotenv");
+      dotenv.config({ path: rootEnvPath });
+      token = process.env.INFOSIMPLES_API_TOKEN;
+    } catch (e) {
+      console.error("[InfoSimples] Failed to reload .env synchronously", e);
+    }
+  }
+  return token;
+};
+const getBaseUrl = () => process.env.INFOSIMPLES_BASE_URL || "https://api.infosimples.com/api/v2/consultas";
+const getIsDev = () => {
+  const env = (process.env.NODE_ENV || "").trim().toLowerCase();
+  return env === "development" || env === "";
+};
 
 function getMockCNDFederal(documento: string): CNDFederalResponse {
   return {
@@ -21,7 +45,7 @@ function getMockCNDFederal(documento: string): CNDFederalResponse {
       data_emissao: new Date().toISOString(),
       data_validade: new Date(Date.now() + 180 * 24 * 60 * 60 * 1000).toISOString(),
       validade_fim_data: new Date(Date.now() + 180 * 24 * 60 * 60 * 1000).toISOString(),
-      site_receipt: "https://receita.fazenda.gov.br/recibo/mock"
+      site_receipt: "https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf"
     }
   };
 }
@@ -37,7 +61,7 @@ function getMockCNDEstadual(ie: string): CNDEstadualResponse {
       numero_certidao: "IE-PR-999888/2024",
       data_emissao: new Date().toISOString(),
       data_validade: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString(),
-      validade_fim_data: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString(),
+      site_receipt: "https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf"
     }
   };
 }
@@ -54,6 +78,7 @@ function getMockFGTS(cnpj: string): RegularidadeFGTSResponse {
       data_emissao: new Date().toISOString(),
       data_validade: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
       validade_fim_data: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+      site_receipt: "https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf"
     }
   };
 }
@@ -104,55 +129,148 @@ export interface RegularidadeFGTSResponse {
 }
 
 /**
- * Consulta CND Federal (PGFN) via InfoSimples
- * Suporta CNPJ ou CPF (com data de nascimento)
+ * Valida Checksum de CNPJ
  */
+export function isValidCNPJ(cnpj: string): boolean {
+  const clean = cnpj.replace(/[^\d]+/g, "");
+  if (clean.length !== 14 || /^(\d)\1+$/.test(clean)) return false;
+  let size = clean.length - 2;
+  let numbers = clean.substring(0, size);
+  let digits = clean.substring(size);
+  let sum = 0;
+  let pos = size - 7;
+  for (let i = size; i >= 1; i--) {
+    sum += Number(numbers.charAt(size - i)) * pos--;
+    if (pos < 2) pos = 9;
+  }
+  let result = sum % 11 < 2 ? 0 : 11 - (sum % 11);
+  if (result !== Number(digits.charAt(0))) return false;
+  size = size + 1;
+  numbers = clean.substring(0, size);
+  sum = 0;
+  pos = size - 7;
+  for (let i = size; i >= 1; i--) {
+    sum += Number(numbers.charAt(size - i)) * pos--;
+    if (pos < 2) pos = 9;
+  }
+  result = sum % 11 < 2 ? 0 : 11 - (sum % 11);
+  return result === Number(digits.charAt(1));
+}
+
+/**
+ * Converte data brasileira (DD/MM/YYYY) para objeto Date
+ */
+export function parseBrazilianDate(dateStr: string | null | undefined): Date | undefined {
+  if (!dateStr) return undefined;
+
+  // Limpa possíveis espaços ou caracteres extras
+  const clean = dateStr.trim();
+
+  // Formato DD/MM/YYYY
+  const regex = /^(\d{2})\/(\d{2})\/(\d{4})/;
+  const match = clean.match(regex);
+
+  if (match) {
+    const [_, day, month, year] = match;
+    const date = new Date(parseInt(year), parseInt(month) - 1, parseInt(day), 12, 0, 0);
+    return isNaN(date.getTime()) ? undefined : date;
+  }
+
+  // Tenta ISO como fallback
+  const iso = new Date(clean);
+  return isNaN(iso.getTime()) ? undefined : iso;
+}
+
+export function isProbablyTestData(documento: string): boolean {
+  const clean = documento.replace(/\D/g, "");
+  if (clean.length < 11) return true;
+  if (/^(\d)\1+$/.test(clean)) return true;
+  if (clean.length === 14 && !isValidCNPJ(clean)) return true;
+  return false;
+}
+
+/**
+ * Formata CNPJ para o padrão XX.XXX.XXX/XXXX-XX
+ */
+function formatarCnpj(cnpj: string): string {
+  const clean = cnpj.replace(/\D/g, "");
+  if (clean.length !== 14) return cnpj;
+  return clean.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, "$1.$2.$3/$4-$5");
+}
+
 export async function consultarCNDFederal(
   documento: string,
   dataNascimento?: string,
-  preferenciaEmissao: "nova" | "2via" = "nova"
+  preferenciaEmissao: "nova" | "2via" = "nova",
+  certificado?: string, // base64
+  senha?: string
 ): Promise<CNDFederalResponse> {
-  if (!INFOSIMPLES_API_TOKEN && isDev) {
+  const isDev = getIsDev();
+  const token = getApiToken();
+  const documentoLimpo = documento.replace(/\D/g, "");
+
+  // Se estiver em Dev e os dados parecem de teste (ou token faltando), usa Mock logo de cara
+  if (isDev && (!token || isProbablyTestData(documentoLimpo))) {
+    console.log("[InfoSimples] Usando Mock em Dev (documento de teste ou sem token).");
     return getMockCNDFederal(documento);
   }
 
-  if (!INFOSIMPLES_API_TOKEN) {
+  if (!token) {
     throw new Error("InfoSimples API token not configured");
   }
 
-  const documentoLimpo = documento.replace(/\D/g, "");
   const isCPF = documentoLimpo.length === 11;
-
   if (isCPF && !dataNascimento) {
     throw new Error("Data de nascimento é obrigatória para consulta com CPF");
   }
 
   try {
-    const payload: any = {
-      token: INFOSIMPLES_API_TOKEN,
-      preferencia_emissao: preferenciaEmissao,
+    const params: any = {
+      token: token,
+      origem: "web",
     };
 
+    const payload: any = {};
+
     if (isCPF) {
-      payload.cpf = documentoLimpo;
-      payload.birthdate = dataNascimento; // formato: aaaa-mm-dd
+      params.cpf = documentoLimpo;
+      params.birthdate = dataNascimento;
     } else {
-      payload.cnpj = documentoLimpo;
+      params.cnpj = formatarCnpj(documentoLimpo);
+      params.preferencia_emissao = preferenciaEmissao;
     }
 
+    if (certificado) {
+      payload.pkcs12 = certificado;
+      payload.pkcs12_password = senha;
+    }
+
+    const queryString = new URLSearchParams(params).toString();
+
     const response = await axios.post(
-      `${BASE_URL}/receita-federal/pgfn/nova`,
+      `${getBaseUrl()}/receita-federal/pgfn/nova?${queryString}`,
       payload,
       {
-        headers: {
-          "Content-Type": "application/json",
-        },
-        timeout: 30000,
+        headers: { "Content-Type": "application/json" },
+        timeout: 60000,
       }
     );
 
+    // Desativamos o fallback automático se houver um token, 
+    // para que o usuário veja o erro real da InfoSimples
+    if (isDev && !token && response.data.code !== 200) {
+      if (response.data.code === 400 || response.data.code === 404 || response.data.code === 408) {
+        console.warn("[InfoSimples] API real retornou erro em Dev, enviando mock:", response.data.code_message);
+        return getMockCNDFederal(documento);
+      }
+    }
+
     return response.data;
   } catch (error: any) {
+    if (isDev && !token) {
+      console.warn("[InfoSimples] Erro na API Real em Dev (sem token), usando Mock:", error.message);
+      return getMockCNDFederal(documento);
+    }
     console.error("[InfoSimples] Erro ao consultar CND Federal:", error.message);
     throw new Error(`Erro ao consultar CND Federal: ${error.message}`);
   }
@@ -163,73 +281,116 @@ export async function consultarCNDFederal(
  */
 export async function consultarCNDEstadual(
   inscricaoEstadual: string,
-  cnpj?: string
+  uf: string = "PR", // Default PR se não informado
+  cnpj?: string,
+  certificado?: string,
+  senha?: string
 ): Promise<CNDEstadualResponse> {
-  if (!INFOSIMPLES_API_TOKEN && isDev) {
+  const isDev = getIsDev();
+  const token = getApiToken();
+
+  // Em Dev, se não houver token ou a IE parecer falsa, usa Mock
+  if (isDev && (!token || isProbablyTestData(inscricaoEstadual))) {
     return getMockCNDEstadual(inscricaoEstadual);
   }
 
-  if (!INFOSIMPLES_API_TOKEN) {
+  if (!token) {
     throw new Error("InfoSimples API token not configured");
   }
 
   try {
     const payload: any = {
-      token: INFOSIMPLES_API_TOKEN,
       ie: inscricaoEstadual,
+      origem: "web"
     };
 
-    if (cnpj) {
-      payload.cnpj = cnpj.replace(/\D/g, "");
+    if (certificado) {
+      payload.pkcs12 = certificado;
+      payload.pkcs12_password = senha;
     }
 
+    if (cnpj) {
+      payload.cnpj = formatarCnpj(cnpj);
+    }
+
+    // Tentar usar o endpoint unificado se a UF estiver presente, senão mantém fallback PR
+    const statePath = uf.toLowerCase() === "pr" ? "sefaz/pr/certidao-debitos" : `sefaz/${uf.toLowerCase()}/certidao-negativa`;
+
     const response = await axios.post(
-      `${BASE_URL}/sefaz/pr`,
+      `${getBaseUrl()}/${statePath}?token=${token}`,
       payload,
       {
-        headers: {
-          "Content-Type": "application/json",
-        },
-        timeout: 30000,
+        headers: { "Content-Type": "application/json" },
+        timeout: 45000,
       }
     );
 
+    if (isDev && !token && response.data.code !== 200) {
+      console.warn("[InfoSimples] API Estadual erro em Dev, enviando Mock.");
+      return getMockCNDEstadual(inscricaoEstadual);
+    }
+
     return response.data;
   } catch (error: any) {
-    console.error("[InfoSimples] Erro ao consultar CND Estadual:", error.message);
-    throw new Error(`Erro ao consultar CND Estadual: ${error.message}`);
+    if (isDev && !token) {
+      console.warn("[InfoSimples] Erro API Estadual em Dev (sem token), usando Mock:", error.message);
+      return getMockCNDEstadual(inscricaoEstadual);
+    }
+    console.error(`[InfoSimples] Erro ao consultar CND Estadual (${uf}):`, error.message);
+    throw new Error(`Erro ao consultar CND Estadual (${uf}): ${error.message}`);
   }
 }
 
 /**
  * Consulta Regularidade FGTS (Caixa) via InfoSimples
  */
-export async function consultarRegularidadeFGTS(cnpj: string): Promise<RegularidadeFGTSResponse> {
-  if (!INFOSIMPLES_API_TOKEN && isDev) {
+export async function consultarRegularidadeFGTS(
+  cnpj: string,
+  certificado?: string,
+  senha?: string
+): Promise<RegularidadeFGTSResponse> {
+  const isDev = getIsDev();
+  const token = getApiToken();
+
+  if (isDev && (!token || isProbablyTestData(cnpj))) {
     return getMockFGTS(cnpj);
   }
 
-  if (!INFOSIMPLES_API_TOKEN) {
+  if (!token) {
     throw new Error("InfoSimples API token not configured");
   }
 
   try {
+    const payload: any = {
+      cnpj: formatarCnpj(cnpj),
+      origem: "web"
+    };
+
+    if (certificado) {
+      payload.pkcs12 = certificado;
+      payload.pkcs12_password = senha;
+    }
+
     const response = await axios.post(
-      `${BASE_URL}/caixa/regularidade`,
+      `${getBaseUrl()}/caixa/regularidade?token=${token}`,
+      payload,
       {
-        cnpj: cnpj.replace(/\D/g, ""),
-        token: INFOSIMPLES_API_TOKEN,
-      },
-      {
-        headers: {
-          "Content-Type": "application/json",
-        },
-        timeout: 30000,
+        headers: { "Content-Type": "application/json" },
+        timeout: 45000,
       }
     );
 
+    if (isDev && !token && response.data.code !== 200) {
+      console.warn("[InfoSimples] API FGTS erro em Dev, enviando mock.");
+      return getMockFGTS(cnpj);
+    }
+
     return response.data;
   } catch (error: any) {
+    if (isDev && !token) {
+      console.warn("[InfoSimples] Erro API FGTS em Dev (sem token), usando Mock:", error.message);
+      return getMockFGTS(cnpj);
+    }
     console.error("[InfoSimples] Erro ao consultar Regularidade FGTS:", error.message);
     throw new Error(`Erro ao consultar Regularidade FGTS: ${error.message}`);
   }
@@ -269,7 +430,7 @@ export async function consultarCaixaPostalECAC(
   certificado?: string,
   senha?: string
 ): Promise<CaixaPostalECACResponse> {
-  if (!INFOSIMPLES_API_TOKEN) {
+  if (!getApiToken()) {
     throw new Error("InfoSimples API token not configured");
   }
 
@@ -281,7 +442,7 @@ export async function consultarCaixaPostalECAC(
 
   try {
     const payload: any = {
-      token: INFOSIMPLES_API_TOKEN,
+      token: getApiToken(),
       cnpj: cnpjLimpo,
     };
 
@@ -294,7 +455,7 @@ export async function consultarCaixaPostalECAC(
     }
 
     const response = await axios.post(
-      `${BASE_URL}/ecac/caixa-postal`,
+      `${getBaseUrl()}/ecac/caixa-postal`,
       payload,
       {
         headers: {
@@ -315,5 +476,5 @@ export async function consultarCaixaPostalECAC(
  * Valida se o token está configurado corretamente
  */
 export function isInfoSimplesConfigured(): boolean {
-  return !!INFOSIMPLES_API_TOKEN;
+  return !!getApiToken();
 }

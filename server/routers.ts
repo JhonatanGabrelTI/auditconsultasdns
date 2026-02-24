@@ -59,6 +59,7 @@ export const appRouter = router({
         certificatePath: z.string().optional(),
         certificatePasswordHash: z.string().optional(),
         certificateExpiresAt: z.date().optional(),
+        uf: z.string().length(2).optional(),
       }))
       .mutation(async ({ ctx, input }) => {
         // Sanitize CNPJ and CPF
@@ -90,6 +91,7 @@ export const appRouter = router({
         certificatePath: z.string().optional(),
         certificatePasswordHash: z.string().optional(),
         certificateExpiresAt: z.date().optional(),
+        uf: z.string().length(2).optional(),
       }))
       .mutation(async ({ input }) => {
         const { id, ...data } = input;
@@ -525,25 +527,54 @@ export const appRouter = router({
           throw new Error("Empresa não encontrada");
         }
 
-        const { consultarCNDFederal } = await import("./infosimples");
+        const { consultarCNDFederal, isValidCNPJ, parseBrazilianDate } = await import("./infosimples");
+
+        const documento = company.cnpj || company.cpf || "";
+        const isCnpj = (company.cnpj?.length || 0) >= 14;
+
+        // Validação local antes de gastar crédito ou dar erro 607
+        if (isCnpj && !isValidCNPJ(documento)) {
+          const errMsg = "CNPJ estruturalmente inválido (falha no dígito verificador)";
+          await db.createApiConsulta({
+            companyId: input.companyId,
+            userId: ctx.user.id,
+            tipoConsulta: "cnd_federal",
+            sucesso: false,
+            mensagemErro: errMsg,
+            situacao: "DADO INVÁLIDO",
+            respostaCompleta: JSON.stringify({ error: errMsg, cnpj: documento }),
+          });
+          return { sucesso: false, mensagem: errMsg, situacao: "DADO INVÁLIDO" };
+        }
 
         try {
           // Passa data de nascimento se for Pessoa Física
           const resultado = await consultarCNDFederal(
-            company.cnpj || company.cpf || "", // Handle cnpj/cpf
-            company.personType === "fisica" && company.dataNascimento ? company.dataNascimento : undefined
+            documento,
+            company.personType === "fisica" && company.dataNascimento ? company.dataNascimento : undefined,
+            "nova",
+            company.certificatePath || undefined,
+            company.certificatePasswordHash || "Dc4q2T@p9PYQj@2@" // Fallback para senha fornecida
           );
+
+          const data = Array.isArray(resultado.data) ? resultado.data[0] : resultado.data;
+
+          // Mapeamento robusto para CND Federal
+          const situacao = data?.situacao || data?.mensagem || (data?.conseguiu_emitir_certidao_negativa ? "REGULAR" : undefined) || resultado.code_message;
+          const numeroCertidao = data?.numero_certidao || data?.certidao_codigo;
+          const dataEmissao = data?.data_emissao || data?.emissao_data;
+          const dataValidade = data?.data_validade || data?.validade;
+          const siteReceipt = data?.site_receipt || (resultado.site_receipts && resultado.site_receipts[0]);
 
           await db.createApiConsulta({
             companyId: input.companyId,
             userId: ctx.user.id,
             tipoConsulta: "cnd_federal",
-            situacao: resultado.data?.situacao || resultado.code_message,
-            numeroCertidao: resultado.data?.numero_certidao,
-            dataEmissao: resultado.data?.data_emissao ? new Date(resultado.data.data_emissao) : undefined,
-            dataValidade: resultado.data?.data_validade ? new Date(resultado.data.data_validade) : undefined,
-            validadeFim: resultado.data?.validade_fim_data ? new Date(resultado.data.validade_fim_data) : undefined,
-            siteReceipt: resultado.data?.site_receipt,
+            situacao: situacao,
+            numeroCertidao: numeroCertidao,
+            dataEmissao: parseBrazilianDate(dataEmissao),
+            dataValidade: parseBrazilianDate(dataValidade),
+            siteReceipt: siteReceipt,
             respostaCompleta: JSON.stringify(resultado),
             sucesso: resultado.code === 200,
             mensagemErro: resultado.code !== 200 ? resultado.code_message : undefined,
@@ -551,10 +582,11 @@ export const appRouter = router({
 
           return {
             sucesso: resultado.code === 200,
-            situacao: resultado.data?.situacao,
-            numeroCertidao: resultado.data?.numero_certidao,
-            dataEmissao: resultado.data?.data_emissao,
-            dataValidade: resultado.data?.data_validade,
+            situacao: situacao,
+            numeroCertidao: numeroCertidao,
+            dataEmissao: dataEmissao,
+            dataValidade: dataValidade,
+            siteReceipt: siteReceipt,
             mensagem: resultado.code_message,
           };
         } catch (error: any) {
@@ -585,24 +617,36 @@ export const appRouter = router({
           throw new Error("Empresa não possui Inscrição Estadual cadastrada");
         }
 
-        const { consultarCNDEstadual } = await import("./infosimples");
+        const { consultarCNDEstadual, isValidCNPJ, parseBrazilianDate } = await import("./infosimples");
+
+        if (company.cnpj && !isValidCNPJ(company.cnpj)) {
+          const errMsg = "CNPJ estruturalmente inválido para consulta estadual";
+          return { sucesso: false, mensagem: errMsg, situacao: "DADO INVÁLIDO" };
+        }
 
         try {
           const resultado = await consultarCNDEstadual(
             company.inscricaoEstadual,
-            company.personType === "juridica" ? (company.cnpj || undefined) : undefined
+            company.uf || "PR",
+            company.personType === "juridica" ? (company.cnpj || undefined) : undefined,
+            company.certificatePath || undefined,
+            company.certificatePasswordHash || "Dc4q2T@p9PYQj@2@"
           );
+
+          const data = Array.isArray(resultado.data) ? resultado.data[0] : resultado.data;
+          const situacao = data?.situacao || data?.mensagem || resultado.code_message;
+          const numeroCertidao = data?.numero_certidao || data?.numero_protocolo;
+          const siteReceipt = data?.site_receipt || (resultado.site_receipts && resultado.site_receipts[0]);
 
           await db.createApiConsulta({
             companyId: input.companyId,
             userId: ctx.user.id,
             tipoConsulta: "cnd_estadual",
-            situacao: resultado.data?.situacao || resultado.code_message,
-            numeroCertidao: resultado.data?.numero_certidao,
-            dataEmissao: resultado.data?.data_emissao ? new Date(resultado.data.data_emissao) : undefined,
-            dataValidade: resultado.data?.data_validade ? new Date(resultado.data.data_validade) : undefined,
-            validadeFim: resultado.data?.validade_fim_data ? new Date(resultado.data.validade_fim_data) : undefined,
-            siteReceipt: resultado.data?.site_receipt,
+            situacao: situacao,
+            numeroCertidao: numeroCertidao,
+            dataEmissao: parseBrazilianDate(data?.data_emissao),
+            dataValidade: parseBrazilianDate(data?.data_validade),
+            siteReceipt: siteReceipt,
             respostaCompleta: JSON.stringify(resultado),
             sucesso: resultado.code === 200,
             mensagemErro: resultado.code !== 200 ? resultado.code_message : undefined,
@@ -610,12 +654,11 @@ export const appRouter = router({
 
           return {
             sucesso: resultado.code === 200,
-            situacao: resultado.data?.situacao,
-            numeroCertidao: resultado.data?.numero_certidao,
-            dataEmissao: resultado.data?.data_emissao,
-            dataValidade: resultado.data?.data_validade,
-            validadeFim: resultado.data?.validade_fim_data,
-            siteReceipt: resultado.data?.site_receipt,
+            situacao: situacao,
+            numeroCertidao: numeroCertidao,
+            dataEmissao: data?.data_emissao,
+            dataValidade: data?.data_validade,
+            siteReceipt: siteReceipt,
             mensagem: resultado.code_message,
           };
         } catch (error: any) {
@@ -646,21 +689,34 @@ export const appRouter = router({
           throw new Error("Regularidade FGTS disponível apenas para Pessoa Jurídica");
         }
 
-        const { consultarRegularidadeFGTS } = await import("./infosimples");
+        const { consultarRegularidadeFGTS, isValidCNPJ, parseBrazilianDate } = await import("./infosimples");
+
+        if (company.cnpj && !isValidCNPJ(company.cnpj)) {
+          const errMsg = "CNPJ estruturalmente inválido para consulta FGTS";
+          return { sucesso: false, mensagem: errMsg, situacao: "DADO INVÁLIDO" };
+        }
 
         try {
-          const resultado = await consultarRegularidadeFGTS(company.cnpj || "");
+          const resultado = await consultarRegularidadeFGTS(
+            company.cnpj || "",
+            company.certificatePath || undefined,
+            company.certificatePasswordHash || "Dc4q2T@p9PYQj@2@"
+          );
+
+          const data = Array.isArray(resultado.data) ? resultado.data[0] : resultado.data;
+          const situacao = data?.situacao || data?.status || resultado.code_message;
+          const numeroCertidao = data?.numero_crf || data?.certidao_numero;
+          const siteReceipt = data?.site_receipt || (resultado.site_receipts && resultado.site_receipts[0]);
 
           await db.createApiConsulta({
             companyId: input.companyId,
             userId: ctx.user.id,
             tipoConsulta: "regularidade_fgts",
-            situacao: resultado.data?.situacao || resultado.code_message,
-            numeroCertidao: resultado.data?.numero_crf,
-            dataEmissao: resultado.data?.data_emissao ? new Date(resultado.data.data_emissao) : undefined,
-            dataValidade: resultado.data?.data_validade ? new Date(resultado.data.data_validade) : undefined,
-            validadeFim: resultado.data?.validade_fim_data ? new Date(resultado.data.validade_fim_data) : undefined,
-            siteReceipt: resultado.data?.site_receipt,
+            situacao: situacao,
+            numeroCertidao: numeroCertidao,
+            dataEmissao: parseBrazilianDate(data?.data_emissao),
+            dataValidade: parseBrazilianDate(data?.data_validade),
+            siteReceipt: siteReceipt,
             respostaCompleta: JSON.stringify(resultado),
             sucesso: resultado.code === 200,
             mensagemErro: resultado.code !== 200 ? resultado.code_message : undefined,
@@ -668,12 +724,11 @@ export const appRouter = router({
 
           return {
             sucesso: resultado.code === 200,
-            situacao: resultado.data?.situacao,
-            numeroCertidao: resultado.data?.numero_crf,
-            dataEmissao: resultado.data?.data_emissao,
-            dataValidade: resultado.data?.data_validade,
-            validadeFim: resultado.data?.validade_fim_data,
-            siteReceipt: resultado.data?.site_receipt,
+            situacao: situacao,
+            numeroCertidao: numeroCertidao,
+            dataEmissao: data?.data_emissao,
+            dataValidade: data?.data_validade,
+            siteReceipt: siteReceipt,
             mensagem: resultado.code_message,
           };
         } catch (error: any) {

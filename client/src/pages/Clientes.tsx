@@ -65,6 +65,7 @@ function ClientForm({ onSuccess, onCancel, initialData, isEdit }: ClientFormProp
     inscricaoEstadual?: string;
     emails?: string;
     whatsapps?: string;
+    uf?: string;
   }>({
     personType: initialData?.personType || "juridica",
     cnpjCpf: (initialData?.cnpj || initialData?.cpf) || "",
@@ -73,6 +74,7 @@ function ClientForm({ onSuccess, onCancel, initialData, isEdit }: ClientFormProp
     inscricaoEstadual: initialData?.inscricaoEstadual || "",
     emails: Array.isArray(initialData?.emails) ? initialData.emails.join(", ") : "",
     whatsapps: Array.isArray(initialData?.whatsapps) ? initialData.whatsapps.join(", ") : "",
+    uf: initialData?.uf || "PR",
   });
 
   const createClient = trpc.companies.create.useMutation({
@@ -117,6 +119,7 @@ function ClientForm({ onSuccess, onCancel, initialData, isEdit }: ClientFormProp
       personType: formData.personType,
       taxRegime: formData.taxRegime,
       inscricaoEstadual: formData.inscricaoEstadual,
+      uf: formData.uf,
       emails: emailsArray,
       whatsapps: whatsappsArray,
     };
@@ -209,14 +212,32 @@ function ClientForm({ onSuccess, onCancel, initialData, isEdit }: ClientFormProp
         </div>
 
         {formData.personType === "juridica" && (
-          <div className="space-y-2">
-            <Label htmlFor="inscricaoEstadual">Inscrição Estadual</Label>
-            <Input
-              id="inscricaoEstadual"
-              placeholder="000.000.000.000"
-              value={formData.inscricaoEstadual}
-              onChange={(e) => setFormData({ ...formData, inscricaoEstadual: e.target.value })}
-            />
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label htmlFor="inscricaoEstadual">Inscrição Estadual</Label>
+              <Input
+                id="inscricaoEstadual"
+                placeholder="000.000.000.000"
+                value={formData.inscricaoEstadual}
+                onChange={(e) => setFormData({ ...formData, inscricaoEstadual: e.target.value })}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="uf">UF (Estado)</Label>
+              <Select
+                value={formData.uf}
+                onValueChange={(value) => setFormData({ ...formData, uf: value })}
+              >
+                <SelectTrigger id="uf">
+                  <SelectValue placeholder="UF" />
+                </SelectTrigger>
+                <SelectContent>
+                  {["AC", "AL", "AP", "AM", "BA", "CE", "DF", "ES", "GO", "MA", "MT", "MS", "MG", "PA", "PB", "PR", "PE", "PI", "RJ", "RN", "RS", "RO", "RR", "SC", "SP", "SE", "TO"].map(uf => (
+                    <SelectItem key={uf} value={uf}>{uf}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
         )}
 
@@ -295,14 +316,15 @@ function BulkImportDialog({ onSuccess, onCancel }: BulkImportDialogProps) {
           }
         });
 
-        // Ensure standard fields
+        // Ensure standard fields and flexible mapping
         return {
-          name: obj.nome || obj.name,
-          personType: (obj.tipo || obj.persontype)?.toLowerCase() === "fisica" ? "fisica" : "juridica",
+          name: obj.nome || obj.name || obj.razao_social || obj["razao social"] || obj["razão social"],
+          personType: (obj.tipo || obj.persontype || obj.type)?.toLowerCase()?.includes("fisica") ? "fisica" : "juridica",
           cnpj: obj.cnpj,
           cpf: obj.cpf,
-          taxRegime: obj.regime || obj.taxregime,
-          inscricaoEstadual: obj.inscricaoestadual || obj.ie,
+          taxRegime: obj.regime || obj.taxregime || obj["regime tributario"] || obj["regime tributário"],
+          inscricaoEstadual: obj.inscricaoestadual || obj.ie || obj["inscrição estadual"],
+          uf: (obj.uf || obj.estado || obj.state || "PR").toUpperCase().substring(0, 2),
           emails: obj.emails || [],
           whatsapps: obj.whatsapps || [],
         };
@@ -347,7 +369,8 @@ function BulkImportDialog({ onSuccess, onCancel }: BulkImportDialogProps) {
         <ul className="list-disc pl-4 space-y-1">
           <li>Use vírgula para separar colunas.</li>
           <li>A primeira linha deve conter os cabeçalhos.</li>
-          <li>Colunas aceitas: <b>nome, cnpj, cpf, persontype, regime, emails, whatsapps</b>.</li>
+          <li>Principais colunas: <b>cnpj, nome</b> (ou razao_social), <b>tipo</b> (juridica/fisica), <b>regime</b>.</li>
+          <li>Outras: <b>emails, whatsapps, inscricao_estadual</b>.</li>
           <li>Para múltiplos e-mails ou whatsapps, use ponto e vírgula (;).</li>
         </ul>
         <Button variant="link" size="sm" className="p-0 h-auto" onClick={downloadTemplate}>
@@ -890,6 +913,17 @@ export default function Clientes() {
                     <p className="font-semibold text-red-600">✗ Erro na consulta</p>
                     <p className="text-sm mt-2">{consultaResult.mensagem}</p>
                   </div>
+                )}
+
+                {consultaResult.sucesso && consultaResult.siteReceipt && (
+                  <Button
+                    variant="default"
+                    className="w-full bg-emerald-600 hover:bg-emerald-700 text-white"
+                    onClick={() => window.open(consultaResult.siteReceipt, "_blank")}
+                  >
+                    <Download className="h-4 w-4 mr-2" />
+                    Baixar Certidão
+                  </Button>
                 )}
 
                 <Button onClick={() => setConsultaDialogOpen(false)} className="w-full">

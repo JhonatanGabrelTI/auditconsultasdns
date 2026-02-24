@@ -61,6 +61,9 @@ export const companies = pgTable("companies", {
   // Status
   active: boolean("active").default(true).notNull(),
 
+  // Localização
+  uf: varchar("uf", { length: 2 }), // UF para consultas estaduais
+
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().$onUpdate(() => new Date()).notNull(),
 });
