@@ -240,7 +240,7 @@ export default function Home() {
                   schedules.map((schedule) => (
                     <div key={schedule.id} className="flex items-center justify-between p-2 rounded-lg border border-border">
                       <span className="text-sm font-medium capitalize">
-                        {schedule.scheduleType.replace(/_/g, " ")}
+                        {schedule.processType?.replace(/_/g, " ") || "Automação"}
                       </span>
                       <span className="text-sm text-muted-foreground">
                         Dia {schedule.dayOfMonth}
