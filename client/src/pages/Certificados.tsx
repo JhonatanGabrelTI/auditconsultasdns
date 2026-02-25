@@ -28,9 +28,9 @@ export default function Certificados() {
     }
   });
 
-  const getStatus = (validUntil: string | null) => {
+  const getStatus = (validUntil: string | Date | null) => {
     if (!validUntil) return { label: "Sem data", color: "bg-slate-500/10 text-slate-500", icon: AlertCircle };
-    const date = new Date(validUntil);
+    const date = validUntil instanceof Date ? validUntil : new Date(validUntil);
     const now = new Date();
     const daysLeft = differenceInDays(date, now);
 

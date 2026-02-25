@@ -28,11 +28,11 @@ export default function Procuracoes() {
     }
   });
 
-  const getStatusBadge = (endDate: string | null, active: boolean) => {
+  const getStatusBadge = (endDate: string | Date | null, active: boolean) => {
     if (!active) return <Badge className="bg-rose-500/10 text-rose-500 border-none">Revogada</Badge>;
     if (!endDate) return <Badge className="bg-emerald-500/10 text-emerald-500 border-none">Ativa (Vigente)</Badge>;
 
-    const date = new Date(endDate);
+    const date = endDate instanceof Date ? endDate : new Date(endDate);
     const now = new Date();
 
     if (isAfter(now, date)) {

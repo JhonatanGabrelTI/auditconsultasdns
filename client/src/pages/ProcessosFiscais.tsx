@@ -75,6 +75,7 @@ function FiscalProcessForm({ onSuccess, onCancel, initialData, isEdit }: FiscalP
     notes: initialData?.notes || "",
   });
 
+  const utils = trpc.useUtils();
   const { data: companies } = trpc.companies.search.useQuery({});
 
   const createProcess = trpc.fiscalProcesses.create.useMutation({
@@ -231,6 +232,7 @@ export default function ProcessosFiscais() {
   const [anoFiltro, setAnoFiltro] = useState<string>(new Date().getFullYear().toString());
   const [dialogOpen, setDialogOpen] = useState(false);
   const [selectedProcess, setSelectedProcess] = useState<any>(null);
+  const utils = trpc.useUtils();
 
   const { data: processos, isLoading, refetch: refetchList } = trpc.fiscalProcesses.list.useQuery(
     { processType: tipoFiltro }

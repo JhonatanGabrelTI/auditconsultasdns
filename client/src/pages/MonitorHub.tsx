@@ -45,6 +45,7 @@ export default function MonitorHub() {
   const { data: parcelamentosProcesses } = trpc.fiscalProcesses.listByType.useQuery({ processType: "parcelamentos" });
   const { data: ecacMsgs } = trpc.ecacMessages.list.useQuery();
   const { data: allPendencies } = trpc.pendencies.listAll.useQuery();
+  const { data: minhasConsultas } = trpc.apiConsultas.minhasConsultas.useQuery();
 
   // New Regime-specific data
   const { data: lucroRealProcesses } = trpc.fiscalProcesses.listByRegime.useQuery({ taxRegime: "lucro_real" });
@@ -174,29 +175,36 @@ export default function MonitorHub() {
 
                   <TabsContent value="por-processo" className="space-y-3 pt-4">
                     {[
-                      { label: "Simples Nacional", value: "simples_nacional" },
-                      { label: "Lucro Presumido", value: "lucro_presumido" },
-                      { label: "Lucro Real", value: "lucro_real" },
-                      { label: "DCTFWeb", value: "dctfweb" },
-                      { label: "FGTS Digital", value: "fgts" },
-                      { label: "Parcelamentos", value: "parcelamentos" },
-                      { label: "Situação Fiscal", value: "situacao_fiscal" },
-                    ].map((process) => (
-                      <div
-                        key={process.value}
-                        className="flex items-center justify-between p-3 rounded-lg border border-border bg-card/50 hover:bg-card transition-colors"
-                      >
-                        <div className="flex items-center gap-3">
-                          <FileText className="h-5 w-5 text-primary" />
-                          <span className="font-medium">{process.label}</span>
+                      { label: "Simples Nacional", value: "simples_nacional", dbType: "simples_nacional" },
+                      { label: "Lucro Presumido", value: "lucro_presumido", dbType: "lucro_presumido" },
+                      { label: "Lucro Real", value: "lucro_real", dbType: "lucro_real" },
+                      { label: "DCTFWeb", value: "dctfweb", dbType: "dctfweb" },
+                      { label: "FGTS Digital", value: "fgts", dbType: "regularidade_fgts" },
+                      { label: "Parcelamentos", value: "parcelamentos", dbType: "parcelamentos" },
+                      { label: "Situação Fiscal (Federal)", value: "situacao_fiscal", dbType: "cnd_federal" },
+                    ].map((process) => {
+                      const relevant = minhasConsultas?.filter(c => c.tipoConsulta === process.dbType) || [];
+                      const emDia = relevant.filter(c => c.sucesso && (c.situacao === "REGULAR" || c.situacao === "SEM PENDÊNCIAS")).length;
+                      const atencao = relevant.filter(c => !c.sucesso || (c.situacao !== "REGULAR" && c.situacao !== "SEM PENDÊNCIAS" && c.situacao !== "PENDENTE")).length;
+                      const pendentes = relevant.filter(c => c.situacao === "PENDENTE").length;
+
+                      return (
+                        <div
+                          key={process.value}
+                          className="flex items-center justify-between p-3 rounded-lg border border-border bg-card/50 hover:bg-card transition-colors"
+                        >
+                          <div className="flex items-center gap-3">
+                            <FileText className="h-5 w-5 text-primary" />
+                            <span className="font-medium">{process.label}</span>
+                          </div>
+                          <div className="flex items-center gap-4">
+                            <span className="text-sm font-medium text-emerald-500">Em dia: {emDia}</span>
+                            <span className="text-sm font-medium text-amber-500">Pendentes: {pendentes}</span>
+                            <span className="text-sm font-medium text-rose-500">Atenção: {atencao}</span>
+                          </div>
                         </div>
-                        <div className="flex items-center gap-4">
-                          <span className="text-sm font-medium text-emerald-500">Em dia: 0</span>
-                          <span className="text-sm font-medium text-amber-500">Pendentes: 0</span>
-                          <span className="text-sm font-medium text-rose-500">Atenção: 0</span>
-                        </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </TabsContent>
                 </Tabs>
               </CardContent>

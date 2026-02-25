@@ -1,5 +1,5 @@
 console.log("[Database] Loaded CHECKPOINT-DB-V3");
-import { eq, and, like, or, desc, sql } from "drizzle-orm";
+import { eq, and, like, or, desc, sql, isNotNull } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 
@@ -293,7 +293,7 @@ export async function createDigitalCertificate(certificate: InsertDigitalCertifi
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
-  return await db.insert(digitalCertificates).values(certificate);
+  return await db.insert(digitalCertificates).values(certificate).returning();
 }
 
 export async function getDigitalCertificatesByCompanyId(companyId: string) {
@@ -321,7 +321,8 @@ export async function getDigitalCertificatesByUserId(userId: number) {
   const db = await getDb();
   if (!db) return [];
 
-  return await db
+  // Get explicit certificates from digitalCertificates table
+  const explicitCerts = await db
     .select({
       certificate: digitalCertificates,
       company: companies
@@ -330,6 +331,61 @@ export async function getDigitalCertificatesByUserId(userId: number) {
     .innerJoin(companies, eq(digitalCertificates.companyId, companies.id))
     .where(eq(companies.userId, userId))
     .orderBy(desc(digitalCertificates.validUntil));
+
+  const explicitIds = new Set(explicitCerts.map(c => c.company.id));
+
+  // Get implicit certificates from companies table that aren't in digitalCertificates
+  const implicitCerts = await db
+    .select()
+    .from(companies)
+    .where(and(
+      eq(companies.userId, userId),
+      isNotNull(companies.certificatePath)
+    ));
+
+  const results = [...explicitCerts];
+
+  implicitCerts.forEach(company => {
+    if (!explicitIds.has(company.id)) {
+      results.push({
+        certificate: {
+          id: 0, // Virtual ID
+          companyId: company.id,
+          name: "Certificado (Auto)",
+          serialNumber: null,
+          issuer: null,
+          subject: null,
+          validFrom: null,
+          validUntil: company.certificateExpiresAt,
+          path: company.certificatePath,
+          passwordHash: company.certificatePasswordHash,
+          active: true,
+          createdAt: company.createdAt,
+          updatedAt: company.createdAt
+        } as any,
+        company: company
+      });
+    }
+  });
+
+  return results;
+}
+
+export async function getActiveCertificateForCompany(companyId: string) {
+  const db = await getDb();
+  if (!db) return undefined;
+
+  const result = await db
+    .select()
+    .from(digitalCertificates)
+    .where(and(
+      eq(digitalCertificates.companyId, companyId),
+      eq(digitalCertificates.active, true)
+    ))
+    .orderBy(desc(digitalCertificates.validUntil), desc(digitalCertificates.id))
+    .limit(1);
+
+  return result.length > 0 ? result[0] : undefined;
 }
 
 // ==================== PROCURACAO OPERATIONS ====================

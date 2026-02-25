@@ -47,11 +47,23 @@ export default function SimplesNacional() {
   const [regimeFilter, setRegimeFilter] = useState("all");
   const [clientes, setClientes] = useState<any[]>([]);
 
-  const { data: pgdasStats } = trpc.declarations.getStats.useQuery({ declarationType: "pgdas" });
-  const { data: pgmeiStats } = trpc.declarations.getStats.useQuery({ declarationType: "pgmei" });
+  const { data: pgdasStats } = trpc.declarations.getStats.useQuery({ declarationType: "pgdasd" });
+  const { data: pgmeiStats } = trpc.declarations.getStats.useQuery({ declarationType: "pgdasd" });
   const { data: rbt12Data } = trpc.rbt12.list.useQuery({ limit: 10 });
 
   // Estatísticas
+  const getStatus = (validUntil: string | Date | null) => {
+    if (!validUntil) return "unknown"; // Or handle as 'pending', 'expired', etc.
+    const now = new Date();
+    const validDate = new Date(validUntil);
+    if (validDate > now) {
+      const diffTime = Math.abs(validDate.getTime() - now.getTime());
+      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+      if (diffDays <= 30) return "warning"; // Expires soon
+      return "active";
+    }
+    return "expired";
+  };
   const stats = {
     total: 0,
     emDia: 0,
@@ -62,8 +74,8 @@ export default function SimplesNacional() {
     totalEnviar: 0,
     baixados: 0,
     totalBaixar: 0,
-    proximosSublimite: rbt12Data?.filter(i => i.sublimit.status === "proximo").length || 0,
-    excedidos: rbt12Data?.filter(i => i.sublimit.status === "excedido").length || 0,
+    proximosSublimite: rbt12Data?.filter(i => i.sublimit.alert).length || 0,
+    excedidos: rbt12Data?.filter(i => parseFloat(i.sublimit.percentageUsed || "0") >= 100).length || 0,
   };
 
   return (
@@ -77,7 +89,7 @@ export default function SimplesNacional() {
             </div>
             <h1 className="text-xl font-semibold text-foreground">Clientes monitorados</h1>
           </div>
-          
+
           <div className="flex items-center gap-4">
             {/* Agendamento */}
             <div className="flex items-center gap-2 bg-background border rounded-lg px-3 py-2">
@@ -246,7 +258,7 @@ export default function SimplesNacional() {
               />
             </div>
           </div>
-          
+
           <div className="flex items-end gap-3">
             <div>
               <label className="text-xs text-muted-foreground mb-1 block">Status</label>

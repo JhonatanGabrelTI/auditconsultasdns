@@ -46,7 +46,7 @@ import {
 import { useState } from "react";
 import { toast } from "sonner";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { useTransition } from "react";
+import { useTransition, useRef } from "react";
 
 interface ClientFormProps {
   onSuccess: () => void;
@@ -443,6 +443,62 @@ export default function Clientes() {
   const [consultaResult, setConsultaResult] = useState<any>(null);
   const [certificateDialogOpen, setCertificateDialogOpen] = useState(false);
   const [selectedClientForCertificate, setSelectedClientForCertificate] = useState<any>(null);
+  const [certPassword, setCertPassword] = useState("");
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+
+  const createCertificate = trpc.certificates.create.useMutation({
+    onSuccess: (data) => {
+      toast.success("Certificado adicionado com sucesso!");
+      setCertificateDialogOpen(false);
+      setCertPassword("");
+      setSelectedFile(null);
+      refetch();
+
+      // Automático: Iniciar primeira consulta federal após integrar certificado
+      if (selectedClientForCertificate?.id) {
+        toast.info("Iniciando consulta automática da CND Federal...");
+        consultarCNDFederal.mutate({ companyId: selectedClientForCertificate.id });
+      }
+    },
+    onError: (error) => {
+      toast.error(`Erro ao adicionar certificado: ${error.message}`);
+    }
+  });
+
+  const handleSaveCertificate = () => {
+    if (!selectedClientForCertificate) return;
+    if (!certPassword) {
+      toast.error("Por favor, digite a senha do certificado");
+      return;
+    }
+
+    if (!selectedFile) {
+      toast.error("Por favor, selecione um arquivo de certificado");
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const base64 = e.target?.result as string;
+      // Extract only the base64 part if it has the data: URI prefix
+      const base64Content = base64.includes(",") ? base64.split(",")[1] : base64;
+
+      createCertificate.mutate({
+        companyId: selectedClientForCertificate.id,
+        passwordHash: certPassword,
+        path: base64Content, // Store content in path field for now
+        active: true,
+        name: selectedFile.name || "Certificado A1",
+      });
+    };
+
+    reader.onerror = () => {
+      toast.error("Erro ao ler arquivo de certificado");
+    };
+
+    reader.readAsDataURL(selectedFile);
+  };
   const [isPending, startTransition] = useTransition();
 
   const handleFormSuccess = () => {
@@ -909,9 +965,22 @@ export default function Clientes() {
                     )}
                   </>
                 ) : (
-                  <div className="p-4 rounded-lg bg-red-500/10 border border-red-500/20">
-                    <p className="font-semibold text-red-600">✗ Erro na consulta</p>
-                    <p className="text-sm mt-2">{consultaResult.mensagem}</p>
+                  <div className="space-y-4">
+                    <div className="p-4 rounded-lg bg-red-500/10 border border-red-500/20">
+                      <p className="font-semibold text-red-600">✗ Erro na consulta</p>
+                      <p className="text-sm mt-2">{consultaResult.mensagem}</p>
+                    </div>
+
+                    {consultaResult.respostaCompleta && (
+                      <div className="space-y-2">
+                        <Label className="text-xs text-muted-foreground uppercase">Detalhes técnicos</Label>
+                        <div className="p-2 rounded bg-slate-900 border border-slate-800 overflow-x-auto max-h-40">
+                          <pre className="text-[10px] font-mono text-slate-400">
+                            {JSON.stringify(JSON.parse(consultaResult.respostaCompleta), null, 2)}
+                          </pre>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
 
@@ -944,21 +1013,47 @@ export default function Clientes() {
               </DialogDescription>
             </DialogHeader>
             <div className="grid gap-4 py-4">
-              <div className="border-2 border-dashed border-slate-300 dark:border-slate-700 rounded-lg p-8 text-center hover:bg-slate-50 dark:hover:bg-slate-800/50 cursor-pointer transition-colors">
+              <div
+                className={`border-2 border-dashed ${selectedFile ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-900/10' : 'border-slate-300 dark:border-slate-700'} rounded-lg p-8 text-center hover:bg-slate-50 dark:hover:bg-slate-800/50 cursor-pointer transition-colors`}
+                onClick={() => fileInputRef.current?.click()}
+              >
                 <div className="flex flex-col items-center gap-2">
-                  <Upload className="h-8 w-8 text-slate-400" />
-                  <span className="text-sm font-medium text-slate-700 dark:text-slate-300">Arraste e solte o certificado digital</span>
-                  <span className="text-xs text-slate-500 dark:text-slate-400">Seu arquivo será adicionado automaticamente</span>
+                  <Upload className={`h-8 w-8 ${selectedFile ? 'text-emerald-500' : 'text-slate-400'}`} />
+                  <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                    {selectedFile ? selectedFile.name : "Arraste e solte o certificado digital"}
+                  </span>
+                  <span className="text-xs text-slate-500 dark:text-slate-400">
+                    {selectedFile ? "Arquivo selecionado" : "Seu arquivo será adicionado automaticamente"}
+                  </span>
                 </div>
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  className="hidden"
+                  accept=".pfx,.p12"
+                  onChange={(e) => setSelectedFile(e.target.files?.[0] || null)}
+                />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="cert-password">Senha do certificado digital</Label>
-                <Input id="cert-password" type="password" placeholder="Digite a senha do certificado digital" />
+                <Input
+                  id="cert-password"
+                  type="password"
+                  placeholder="Digite a senha do certificado digital"
+                  value={certPassword}
+                  onChange={(e) => setCertPassword(e.target.value)}
+                />
               </div>
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => setCertificateDialogOpen(false)}>Cancelar</Button>
-              <Button className="bg-emerald-600 hover:bg-emerald-700 text-white">Verificar e Salvar</Button>
+              <Button
+                className="bg-emerald-600 hover:bg-emerald-700 text-white"
+                onClick={handleSaveCertificate}
+                disabled={createCertificate.isPending}
+              >
+                {createCertificate.isPending ? "Salvando..." : "Verificar e Salvar"}
+              </Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>

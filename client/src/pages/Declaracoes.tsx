@@ -44,12 +44,12 @@ export default function Declaracoes() {
   const [anoFilter, setAnoFilter] = useState("2026");
   const [clientes, setClientes] = useState<any[]>([]);
 
-  const { data: pgdasStats } = trpc.declarations.getStats.useQuery({ declarationType: "pgdas" });
-  const { data: pgmeiStats } = trpc.declarations.getStats.useQuery({ declarationType: "pgmei" });
+  const { data: pgdasStats } = trpc.declarations.getStats.useQuery({ declarationType: "pgdasd" });
+  const { data: pgmeiStats } = trpc.declarations.getStats.useQuery({ declarationType: "pgdasd" });
   const { data: dctfwebStats } = trpc.declarations.getStats.useQuery({ declarationType: "dctfweb" });
   const { data: defisStats } = trpc.declarations.getStats.useQuery({ declarationType: "defis" });
-  const { data: dirfStats } = trpc.declarations.getStats.useQuery({ declarationType: "dirf" });
-  const { data: fgtsStats } = trpc.declarations.getStats.useQuery({ declarationType: "fgts_digital" });
+  const { data: dirfStats } = trpc.declarations.getStats.useQuery({ declarationType: "demais_especies" });
+  const { data: fgtsStats } = trpc.declarations.getStats.useQuery({ declarationType: "gfip_sefip" });
 
   // Estatísticas consolidadas
   const stats = {
@@ -80,7 +80,7 @@ export default function Declaracoes() {
             </div>
             <h1 className="text-xl font-semibold text-foreground">Acompanhamento de declarações</h1>
           </div>
-          
+
           <div className="flex items-center gap-4">
             {/* Badge */}
             <div className="flex items-center gap-2 bg-blue-50 text-blue-700 px-4 py-2 rounded-lg border border-blue-200">
@@ -159,7 +159,7 @@ export default function Declaracoes() {
             const total = decl.stats?.total || 0;
             const declarados = decl.stats?.declared || 0;
             const percentual = total > 0 ? Math.round((declarados / total) * 100) : 0;
-            
+
             return (
               <Card key={decl.label}>
                 <CardContent className="p-4">
@@ -190,7 +190,7 @@ export default function Declaracoes() {
         <div className="flex items-start gap-3 bg-blue-50 border border-blue-200 rounded-lg p-4">
           <Info className="h-5 w-5 text-blue-600 mt-0.5 shrink-0" />
           <p className="text-sm text-blue-800">
-            Acompanhe o status de todas as declarações. As declarações <strong>mensais</strong> (PGDAS, PGMEI, DCTFWeb, FGTS) devem ser transmitidas até o dia 20. 
+            Acompanhe o status de todas as declarações. As declarações <strong>mensais</strong> (PGDAS, PGMEI, DCTFWeb, FGTS) devem ser transmitidas até o dia 20.
             As <strong>anuais</strong> (DEFIS, DIRF) têm prazos específicos conforme o calendário fiscal.
           </p>
         </div>
@@ -209,7 +209,7 @@ export default function Declaracoes() {
               />
             </div>
           </div>
-          
+
           <div className="flex items-end gap-3">
             <div>
               <label className="text-xs text-muted-foreground mb-1 block">Tipo</label>

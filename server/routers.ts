@@ -140,30 +140,45 @@ export const appRouter = router({
     create: protectedProcedure
       .input(z.object({
         companyId: z.string().uuid(),
-        certificateName: z.string().optional(),
-        issuer: z.string().optional(),
+        name: z.string().optional(),
         serialNumber: z.string().optional(),
-        issueDate: z.date().optional(),
-        expirationDate: z.date(),
-        status: z.enum(["integrado", "a_vencer", "atencao"]),
+        issuer: z.string().optional(),
+        subject: z.string().optional(),
+        validFrom: z.date().optional(),
+        validUntil: z.date().optional(),
+        path: z.string().optional(),
+        passwordHash: z.string().optional(),
+        active: z.boolean().optional(),
       }))
       .mutation(async ({ input }) => {
-        const { certificateName, ...rest } = input;
-        return await db.createDigitalCertificate({
-          name: certificateName || "Certificado",
-          ...rest,
+        const { name, ...data } = input;
+        const cert = await db.createDigitalCertificate({
+          name: name || "Certificado",
+          ...data,
         });
+
+        // Sincronizar com a tabela de empresas para mostrar o status "Integrado"
+        await db.updateCompany(input.companyId, {
+          certificatePath: input.path || "linked_certificate",
+          certificatePasswordHash: input.passwordHash,
+          certificateExpiresAt: input.validUntil,
+        });
+
+        return cert;
       }),
 
     update: protectedProcedure
       .input(z.object({
-        id: z.number(), // This is still serial int
-        certificateName: z.string().optional(),
-        issuer: z.string().optional(),
+        id: z.number(),
+        name: z.string().optional(),
         serialNumber: z.string().optional(),
-        issueDate: z.date().optional(),
-        expirationDate: z.date().optional(),
-        status: z.enum(["integrado", "a_vencer", "atencao"]).optional(),
+        issuer: z.string().optional(),
+        subject: z.string().optional(),
+        validFrom: z.date().optional(),
+        validUntil: z.date().optional(),
+        path: z.string().optional(),
+        passwordHash: z.string().optional(),
+        active: z.boolean().optional(),
       }))
       .mutation(async ({ input }) => {
         const { id, ...data } = input;
@@ -192,30 +207,26 @@ export const appRouter = router({
     create: protectedProcedure
       .input(z.object({
         companyId: z.string().uuid(),
-        tipo: z.string().optional(),
-        numero: z.string().optional(),
-        dataEmissao: z.date().optional(),
-        dataValidade: z.date().optional(),
-        status: z.enum(["ativa", "vencida", "revogada"]).optional(),
-        cpfRepresentante: z.string().optional(),
-        nomeRepresentante: z.string().optional(),
+        type: z.enum(["ecac", "simples_nacional", "outros"]).default("ecac"),
+        cpfRepresentante: z.string(),
+        nomeRepresentante: z.string(),
+        startDate: z.date().optional(),
+        endDate: z.date().optional(),
+        active: z.boolean().optional(),
       }))
       .mutation(async ({ input }) => {
-        return await db.createProcuracao({
-          ...input,
-          cpfRepresentante: input.cpfRepresentante || "",
-          nomeRepresentante: input.nomeRepresentante || "",
-        });
+        return await db.createProcuracao(input);
       }),
 
     update: protectedProcedure
       .input(z.object({
         id: z.number(),
-        tipo: z.string().optional(),
-        numero: z.string().optional(),
-        dataEmissao: z.date().optional(),
-        dataValidade: z.date().optional(),
-        status: z.enum(["ativa", "vencida", "revogada"]).optional(),
+        type: z.enum(["ecac", "simples_nacional", "outros"]).optional(),
+        cpfRepresentante: z.string().optional(),
+        nomeRepresentante: z.string().optional(),
+        startDate: z.date().optional(),
+        endDate: z.date().optional(),
+        active: z.boolean().optional(),
       }))
       .mutation(async ({ input }) => {
         const { id, ...data } = input;
@@ -308,7 +319,7 @@ export const appRouter = router({
 
     listByType: protectedProcedure
       .input(z.object({
-        declarationType: z.enum(["pgdas", "pgmei", "dctfweb", "fgts_digital", "defis", "dirf"])
+        declarationType: z.enum(["dctfweb", "defis", "darfsimples", "das_simples_nacional", "pgdasd", "pf_pj", "rais", "gfip_sefip", "icms_ies", "demais_especies"])
       }))
       .query(async ({ ctx, input }) => {
         return await db.getDeclarationsByType(ctx.user.id, input.declarationType);
@@ -316,7 +327,7 @@ export const appRouter = router({
 
     getStats: protectedProcedure
       .input(z.object({
-        declarationType: z.enum(["pgdas", "pgmei", "dctfweb", "fgts_digital", "defis", "dirf"])
+        declarationType: z.enum(["dctfweb", "defis", "darfsimples", "das_simples_nacional", "pgdasd", "pf_pj", "rais", "gfip_sefip", "icms_ies", "demais_especies"])
       }))
       .query(async ({ ctx, input }) => {
         return await db.getDeclarationStats(ctx.user.id, input.declarationType);
@@ -325,8 +336,7 @@ export const appRouter = router({
     create: protectedProcedure
       .input(z.object({
         companyId: z.string().uuid(),
-        processId: z.number().optional(),
-        declarationType: z.enum(["pgdasd", "pgmei", "dctfweb", "fgts_digital", "defis", "dirf"]),
+        declarationType: z.enum(["dctfweb", "defis", "darfsimples", "das_simples_nacional", "pgdasd", "pf_pj", "rais", "gfip_sefip", "icms_ies", "demais_especies"]),
         referenceMonth: z.number().optional(),
         referenceYear: z.number(),
         declared: z.boolean().optional(),
@@ -335,7 +345,11 @@ export const appRouter = router({
         period: z.string(),
       }))
       .mutation(async ({ input }) => {
-        return await db.createDeclaration(input);
+        const { ...data } = input;
+        return await db.createDeclaration({
+          ...data,
+          protocol: (input as any).protocolNumber // Handle mapping if needed
+        });
       }),
 
     update: protectedProcedure
@@ -368,10 +382,10 @@ export const appRouter = router({
     create: protectedProcedure
       .input(z.object({
         companyId: z.string().uuid(),
-        referenceYear: z.number(),
-        rbt12Value: z.string().optional(), // decimal as string
-        sublimitValue: z.string().optional(),
-        status: z.enum(["dentro", "proximo", "excedido"]).optional(),
+        rbt12Value: z.string(),
+        sublimit: z.string(),
+        percentageUsed: z.string().optional(),
+        alert: z.boolean().optional(),
       }))
       .mutation(async ({ input }) => {
         return await db.createRbt12Sublimit(input);
@@ -447,15 +461,17 @@ export const appRouter = router({
     create: protectedProcedure
       .input(z.object({
         companyId: z.string().uuid(),
-        reportType: z.string(),
-        reportTitle: z.string(),
+        reportType: z.enum(["mensal", "trimestral", "anual"]),
+        period: z.string(), // YYYY-MM
         reportContent: z.string().optional(),
-        referenceMonth: z.number().optional(),
-        referenceYear: z.number(),
-        fileUrl: z.string().optional(),
       }))
       .mutation(async ({ input }) => {
-        return await db.createFiscalReport(input);
+        return await db.createFiscalReport({
+          companyId: input.companyId,
+          reportType: input.reportType,
+          period: input.period,
+          content: input.reportContent,
+        });
       }),
   }),
 
@@ -527,13 +543,19 @@ export const appRouter = router({
           throw new Error("Empresa não encontrada");
         }
 
-        const { consultarCNDFederal, isValidCNPJ, parseBrazilianDate } = await import("./infosimples");
+        const { consultarCNDFederal, isValidCNPJ, parseBrazilianDate, getIsDev } = await import("./infosimples");
 
-        const documento = company.cnpj || company.cpf || "";
-        const isCnpj = (company.cnpj?.length || 0) >= 14;
+        let documento = company.cnpj || company.cpf || "";
 
-        // Validação local antes de gastar crédito ou dar erro 607
-        if (isCnpj && !isValidCNPJ(documento)) {
+        // Auto-pad CNPJ se tiver 13 dígitos
+        if (company.personType === "juridica" && documento.replace(/\D/g, "").length === 13) {
+          documento = "0" + documento.replace(/\D/g, "");
+        }
+
+        const isCnpj = (documento.replace(/\D/g, "").length || 0) >= 14;
+
+        // Validação local antes de gastar crédito ou dar erro 607 (Relaxado em Dev)
+        if (isCnpj && !isValidCNPJ(documento) && !getIsDev()) {
           const errMsg = "CNPJ estruturalmente inválido (falha no dígito verificador)";
           await db.createApiConsulta({
             companyId: input.companyId,
@@ -548,20 +570,28 @@ export const appRouter = router({
         }
 
         try {
+          // Prioriza certificado da tabela digitalCertificates
+          const activeCert = await db.getActiveCertificateForCompany(input.companyId);
+          const certPath = activeCert?.path || company.certificatePath || undefined;
+          const certPass = activeCert?.passwordHash || company.certificatePasswordHash || "Dc4q2T@p9PYQj@2@";
+
+          console.log(`[CND Federal] Iniciando consulta para ${documento} (Cert: ${certPath ? 'Sim' : 'Não'})`);
+
           // Passa data de nascimento se for Pessoa Física
           const resultado = await consultarCNDFederal(
             documento,
             company.personType === "fisica" && company.dataNascimento ? company.dataNascimento : undefined,
             "nova",
-            company.certificatePath || undefined,
-            company.certificatePasswordHash || "Dc4q2T@p9PYQj@2@" // Fallback para senha fornecida
+            certPath,
+            certPass
           );
 
+          console.log(`[CND Federal] Resultado bruto code: ${resultado.code}`);
           const data = Array.isArray(resultado.data) ? resultado.data[0] : resultado.data;
 
-          // Mapeamento robusto para CND Federal
-          const situacao = data?.situacao || data?.mensagem || (data?.conseguiu_emitir_certidao_negativa ? "REGULAR" : undefined) || resultado.code_message;
-          const numeroCertidao = data?.numero_certidao || data?.certidao_codigo;
+          // Mapeamento ainda mais robusto
+          const situacao = data?.situacao || data?.mensagem || (data?.conseguiu_emitir_certidao_negativa ? "REGULAR" : undefined) || resultado.code_message || "DESCONHECIDO";
+          const numeroCertidao = data?.numero_certidao || data?.certidao_codigo || data?.numero_protocolo;
           const dataEmissao = data?.data_emissao || data?.emissao_data;
           const dataValidade = data?.data_validade || data?.validade;
           const siteReceipt = data?.site_receipt || (resultado.site_receipts && resultado.site_receipts[0]);
@@ -588,6 +618,7 @@ export const appRouter = router({
             dataValidade: dataValidade,
             siteReceipt: siteReceipt,
             mensagem: resultado.code_message,
+            respostaCompleta: JSON.stringify(resultado),
           };
         } catch (error: any) {
           await db.createApiConsulta({
@@ -617,25 +648,38 @@ export const appRouter = router({
           throw new Error("Empresa não possui Inscrição Estadual cadastrada");
         }
 
-        const { consultarCNDEstadual, isValidCNPJ, parseBrazilianDate } = await import("./infosimples");
+        const { consultarCNDEstadual, isValidCNPJ, parseBrazilianDate, getIsDev } = await import("./infosimples");
 
-        if (company.cnpj && !isValidCNPJ(company.cnpj)) {
+        let cnpj = company.cnpj;
+        if (cnpj && cnpj.replace(/\D/g, "").length === 13) {
+          cnpj = "0" + cnpj.replace(/\D/g, "");
+        }
+
+        // Validação local (Relaxado em Dev)
+        if (cnpj && !isValidCNPJ(cnpj) && !getIsDev()) {
           const errMsg = "CNPJ estruturalmente inválido para consulta estadual";
           return { sucesso: false, mensagem: errMsg, situacao: "DADO INVÁLIDO" };
         }
 
         try {
+          const activeCert = await db.getActiveCertificateForCompany(input.companyId);
+          const certPath = activeCert?.path || company.certificatePath || undefined;
+          const certPass = activeCert?.passwordHash || company.certificatePasswordHash || "Dc4q2T@p9PYQj@2@";
+
+          console.log(`[CND Estadual] Iniciando consulta para ${company.inscricaoEstadual} (${uf})`);
+
           const resultado = await consultarCNDEstadual(
             company.inscricaoEstadual,
             company.uf || "PR",
             company.personType === "juridica" ? (company.cnpj || undefined) : undefined,
-            company.certificatePath || undefined,
-            company.certificatePasswordHash || "Dc4q2T@p9PYQj@2@"
+            certPath,
+            certPass
           );
 
+          console.log(`[CND Estadual] Resultado bruto code: ${resultado.code}`);
           const data = Array.isArray(resultado.data) ? resultado.data[0] : resultado.data;
-          const situacao = data?.situacao || data?.mensagem || resultado.code_message;
-          const numeroCertidao = data?.numero_certidao || data?.numero_protocolo;
+          const situacao = data?.situacao || data?.mensagem || resultado.code_message || "DESCONHECIDO";
+          const numeroCertidao = data?.numero_certidao || data?.numero_protocolo || data?.id_consulta;
           const siteReceipt = data?.site_receipt || (resultado.site_receipts && resultado.site_receipts[0]);
 
           await db.createApiConsulta({
@@ -660,6 +704,7 @@ export const appRouter = router({
             dataValidade: data?.data_validade,
             siteReceipt: siteReceipt,
             mensagem: resultado.code_message,
+            respostaCompleta: JSON.stringify(resultado),
           };
         } catch (error: any) {
           await db.createApiConsulta({
@@ -689,23 +734,36 @@ export const appRouter = router({
           throw new Error("Regularidade FGTS disponível apenas para Pessoa Jurídica");
         }
 
-        const { consultarRegularidadeFGTS, isValidCNPJ, parseBrazilianDate } = await import("./infosimples");
+        const { consultarRegularidadeFGTS, isValidCNPJ, parseBrazilianDate, getIsDev } = await import("./infosimples");
 
-        if (company.cnpj && !isValidCNPJ(company.cnpj)) {
+        let cnpj = company.cnpj;
+        if (cnpj && cnpj.replace(/\D/g, "").length === 13) {
+          cnpj = "0" + cnpj.replace(/\D/g, "");
+        }
+
+        // Validação local (Relaxado em Dev)
+        if (cnpj && !isValidCNPJ(cnpj) && !getIsDev()) {
           const errMsg = "CNPJ estruturalmente inválido para consulta FGTS";
           return { sucesso: false, mensagem: errMsg, situacao: "DADO INVÁLIDO" };
         }
 
         try {
+          const activeCert = await db.getActiveCertificateForCompany(input.companyId);
+          const certPath = activeCert?.path || company.certificatePath || undefined;
+          const certPass = activeCert?.passwordHash || company.certificatePasswordHash || "Dc4q2T@p9PYQj@2@";
+
+          console.log(`[Regularidade FGTS] Iniciando consulta para ${company.cnpj}`);
+
           const resultado = await consultarRegularidadeFGTS(
             company.cnpj || "",
-            company.certificatePath || undefined,
-            company.certificatePasswordHash || "Dc4q2T@p9PYQj@2@"
+            certPath,
+            certPass
           );
 
+          console.log(`[Regularidade FGTS] Resultado bruto code: ${resultado.code}`);
           const data = Array.isArray(resultado.data) ? resultado.data[0] : resultado.data;
-          const situacao = data?.situacao || data?.status || resultado.code_message;
-          const numeroCertidao = data?.numero_crf || data?.certidao_numero;
+          const situacao = data?.situacao || data?.status || resultado.code_message || "DESCONHECIDO";
+          const numeroCertidao = data?.numero_crf || data?.certidao_numero || data?.inscricao;
           const siteReceipt = data?.site_receipt || (resultado.site_receipts && resultado.site_receipts[0]);
 
           await db.createApiConsulta({
@@ -730,6 +788,7 @@ export const appRouter = router({
             dataValidade: data?.data_validade,
             siteReceipt: siteReceipt,
             mensagem: resultado.code_message,
+            respostaCompleta: JSON.stringify(resultado),
           };
         } catch (error: any) {
           await db.createApiConsulta({
@@ -762,7 +821,15 @@ export const appRouter = router({
         const { consultarCaixaPostalECAC } = await import("./infosimples");
 
         try {
-          const resultado = await consultarCaixaPostalECAC(company.cnpj || "");
+          const activeCert = await db.getActiveCertificateForCompany(input.companyId);
+          const certPath = activeCert?.path || company.certificatePath || undefined;
+          const certPass = activeCert?.passwordHash || company.certificatePasswordHash || "Dc4q2T@p9PYQj@2@";
+
+          const resultado = await consultarCaixaPostalECAC(
+            company.cnpj || "",
+            certPath,
+            certPass
+          );
 
           // Processa mensagens retornadas
           const mensagens = resultado.data?.mensagens || [];
@@ -804,6 +871,7 @@ export const appRouter = router({
               prioridade: m.prioridade,
             })),
             mensagem: resultado.code_message,
+            respostaCompleta: JSON.stringify(resultado),
           };
         } catch (error: any) {
           await db.createApiConsulta({

@@ -1,5 +1,4 @@
 import axios from "axios";
-
 import { config } from "dotenv";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -16,7 +15,6 @@ config({ path: rootEnvPath });
 const getApiToken = () => {
   let token = process.env.INFOSIMPLES_API_TOKEN;
   if (!token) {
-    // Try to reload synchronously as a last resort
     try {
       const dotenv = require("dotenv");
       dotenv.config({ path: rootEnvPath });
@@ -27,65 +25,20 @@ const getApiToken = () => {
   }
   return token;
 };
+
 const getBaseUrl = () => process.env.INFOSIMPLES_BASE_URL || "https://api.infosimples.com/api/v2/consultas";
-const getIsDev = () => {
+
+export const getIsDev = () => {
   const env = (process.env.NODE_ENV || "").trim().toLowerCase();
   return env === "development" || env === "";
 };
 
-function getMockCNDFederal(documento: string): CNDFederalResponse {
-  return {
-    code: 200,
-    code_message: "Consulta realizada com sucesso (MOCK)",
-    data: {
-      situacao: "REGULAR",
-      cnpj: documento,
-      razao_social: "EMPRESA DE TESTE LTDA",
-      numero_certidao: "2024.000123456-78",
-      data_emissao: new Date().toISOString(),
-      data_validade: new Date(Date.now() + 180 * 24 * 60 * 60 * 1000).toISOString(),
-      validade_fim_data: new Date(Date.now() + 180 * 24 * 60 * 60 * 1000).toISOString(),
-      site_receipt: "https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf"
-    }
-  };
-}
-
-function getMockCNDEstadual(ie: string): CNDEstadualResponse {
-  return {
-    code: 200,
-    code_message: "Consulta realizada com sucesso (MOCK)",
-    data: {
-      situacao: "SEM PENDÊNCIAS",
-      inscricao_estadual: ie,
-      razao_social: "EMPRESA ESTADUAL LTDA",
-      numero_certidao: "IE-PR-999888/2024",
-      data_emissao: new Date().toISOString(),
-      data_validade: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString(),
-      site_receipt: "https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf"
-    }
-  };
-}
-
-function getMockFGTS(cnpj: string): RegularidadeFGTSResponse {
-  return {
-    code: 200,
-    code_message: "Consulta realizada com sucesso (MOCK)",
-    data: {
-      situacao: "REGULAR",
-      cnpj: cnpj,
-      razao_social: "EMPRESA FGTS TESTE",
-      numero_crf: "202402240123456789",
-      data_emissao: new Date().toISOString(),
-      data_validade: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
-      validade_fim_data: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
-      site_receipt: "https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf"
-    }
-  };
-}
+// --- REMOVED MOCK FUNCTIONS PER USER REQUEST ---
 
 export interface CNDFederalResponse {
   code: number;
   code_message: string;
+  site_receipts?: string[];
   data?: {
     situacao?: string;
     cnpj?: string;
@@ -101,6 +54,7 @@ export interface CNDFederalResponse {
 export interface CNDEstadualResponse {
   code: number;
   code_message: string;
+  site_receipts?: string[];
   data?: {
     situacao?: string;
     inscricao_estadual?: string;
@@ -116,6 +70,7 @@ export interface CNDEstadualResponse {
 export interface RegularidadeFGTSResponse {
   code: number;
   code_message: string;
+  site_receipts?: string[];
   data?: {
     situacao?: string;
     cnpj?: string;
@@ -132,8 +87,10 @@ export interface RegularidadeFGTSResponse {
  * Valida Checksum de CNPJ
  */
 export function isValidCNPJ(cnpj: string): boolean {
-  const clean = cnpj.replace(/[^\d]+/g, "");
+  let clean = cnpj.replace(/[^\d]+/g, "");
+  if (clean.length === 13) clean = "0" + clean;
   if (clean.length !== 14 || /^(\d)\1+$/.test(clean)) return false;
+
   let size = clean.length - 2;
   let numbers = clean.substring(0, size);
   let digits = clean.substring(size);
@@ -145,6 +102,7 @@ export function isValidCNPJ(cnpj: string): boolean {
   }
   let result = sum % 11 < 2 ? 0 : 11 - (sum % 11);
   if (result !== Number(digits.charAt(0))) return false;
+
   size = size + 1;
   numbers = clean.substring(0, size);
   sum = 0;
@@ -162,21 +120,14 @@ export function isValidCNPJ(cnpj: string): boolean {
  */
 export function parseBrazilianDate(dateStr: string | null | undefined): Date | undefined {
   if (!dateStr) return undefined;
-
-  // Limpa possíveis espaços ou caracteres extras
   const clean = dateStr.trim();
-
-  // Formato DD/MM/YYYY
   const regex = /^(\d{2})\/(\d{2})\/(\d{4})/;
   const match = clean.match(regex);
-
   if (match) {
     const [_, day, month, year] = match;
     const date = new Date(parseInt(year), parseInt(month) - 1, parseInt(day), 12, 0, 0);
     return isNaN(date.getTime()) ? undefined : date;
   }
-
-  // Tenta ISO como fallback
   const iso = new Date(clean);
   return isNaN(iso.getTime()) ? undefined : iso;
 }
@@ -202,21 +153,15 @@ export async function consultarCNDFederal(
   documento: string,
   dataNascimento?: string,
   preferenciaEmissao: "nova" | "2via" = "nova",
-  certificado?: string, // base64
+  certificado?: string,
   senha?: string
 ): Promise<CNDFederalResponse> {
-  const isDev = getIsDev();
   const token = getApiToken();
   const documentoLimpo = documento.replace(/\D/g, "");
 
-  // Se estiver em Dev e os dados parecem de teste (ou token faltando), usa Mock logo de cara
-  if (isDev && (!token || isProbablyTestData(documentoLimpo))) {
-    console.log("[InfoSimples] Usando Mock em Dev (documento de teste ou sem token).");
-    return getMockCNDFederal(documento);
-  }
-
   if (!token) {
-    throw new Error("InfoSimples API token not configured");
+    console.error("[InfoSimples] Critical Error: API token not configured.");
+    throw new Error("Erro: Token da API InfoSimples não configurado no servidor.");
   }
 
   const isCPF = documentoLimpo.length === 11;
@@ -225,19 +170,17 @@ export async function consultarCNDFederal(
   }
 
   try {
-    const params: any = {
+    const payload: any = {
       token: token,
       origem: "web",
     };
 
-    const payload: any = {};
-
     if (isCPF) {
-      params.cpf = documentoLimpo;
-      params.birthdate = dataNascimento;
+      payload.cpf = documentoLimpo;
+      payload.birthdate = dataNascimento;
     } else {
-      params.cnpj = formatarCnpj(documentoLimpo);
-      params.preferencia_emissao = preferenciaEmissao;
+      payload.cnpj = formatarCnpj(documentoLimpo);
+      payload.preferencia_emissao = preferenciaEmissao;
     }
 
     if (certificado) {
@@ -245,10 +188,9 @@ export async function consultarCNDFederal(
       payload.pkcs12_password = senha;
     }
 
-    const queryString = new URLSearchParams(params).toString();
-
+    console.log(`[InfoSimples] Enviando requisição Federal real para ${documentoLimpo}...`);
     const response = await axios.post(
-      `${getBaseUrl()}/receita-federal/pgfn/nova?${queryString}`,
+      `${getBaseUrl()}/receita-federal/pgfn/nova`,
       payload,
       {
         headers: { "Content-Type": "application/json" },
@@ -256,50 +198,27 @@ export async function consultarCNDFederal(
       }
     );
 
-    // Desativamos o fallback automático se houver um token, 
-    // para que o usuário veja o erro real da InfoSimples
-    if (isDev && !token && response.data.code !== 200) {
-      if (response.data.code === 400 || response.data.code === 404 || response.data.code === 408) {
-        console.warn("[InfoSimples] API real retornou erro em Dev, enviando mock:", response.data.code_message);
-        return getMockCNDFederal(documento);
-      }
-    }
-
+    console.log(`[InfoSimples] API Federal Response Code: ${response.data.code}`);
     return response.data;
   } catch (error: any) {
-    if (isDev && !token) {
-      console.warn("[InfoSimples] Erro na API Real em Dev (sem token), usando Mock:", error.message);
-      return getMockCNDFederal(documento);
-    }
-    console.error("[InfoSimples] Erro ao consultar CND Federal:", error.message);
-    throw new Error(`Erro ao consultar CND Federal: ${error.message}`);
+    console.error("[InfoSimples] Erro na consulta Federal real:", error.message);
+    throw new Error(`Falha na API Real InfoSimples (Federal): ${error.message}`);
   }
 }
 
-/**
- * Consulta CND Estadual PR (SEFAZ) via InfoSimples
- */
 export async function consultarCNDEstadual(
   inscricaoEstadual: string,
-  uf: string = "PR", // Default PR se não informado
+  uf: string = "PR",
   cnpj?: string,
   certificado?: string,
   senha?: string
 ): Promise<CNDEstadualResponse> {
-  const isDev = getIsDev();
   const token = getApiToken();
-
-  // Em Dev, se não houver token ou a IE parecer falsa, usa Mock
-  if (isDev && (!token || isProbablyTestData(inscricaoEstadual))) {
-    return getMockCNDEstadual(inscricaoEstadual);
-  }
-
-  if (!token) {
-    throw new Error("InfoSimples API token not configured");
-  }
+  if (!token) throw new Error("Token InfoSimples não configurado");
 
   try {
     const payload: any = {
+      token: token,
       ie: inscricaoEstadual,
       origem: "web"
     };
@@ -313,11 +232,11 @@ export async function consultarCNDEstadual(
       payload.cnpj = formatarCnpj(cnpj);
     }
 
-    // Tentar usar o endpoint unificado se a UF estiver presente, senão mantém fallback PR
     const statePath = uf.toLowerCase() === "pr" ? "sefaz/pr/certidao-debitos" : `sefaz/${uf.toLowerCase()}/certidao-negativa`;
 
+    console.log(`[InfoSimples] Enviando requisição Estadual real para ${inscricaoEstadual} (${uf})...`);
     const response = await axios.post(
-      `${getBaseUrl()}/${statePath}?token=${token}`,
+      `${getBaseUrl()}/${statePath}`,
       payload,
       {
         headers: { "Content-Type": "application/json" },
@@ -325,43 +244,25 @@ export async function consultarCNDEstadual(
       }
     );
 
-    if (isDev && !token && response.data.code !== 200) {
-      console.warn("[InfoSimples] API Estadual erro em Dev, enviando Mock.");
-      return getMockCNDEstadual(inscricaoEstadual);
-    }
-
+    console.log(`[InfoSimples] API Estadual Response Code: ${response.data.code}`);
     return response.data;
   } catch (error: any) {
-    if (isDev && !token) {
-      console.warn("[InfoSimples] Erro API Estadual em Dev (sem token), usando Mock:", error.message);
-      return getMockCNDEstadual(inscricaoEstadual);
-    }
-    console.error(`[InfoSimples] Erro ao consultar CND Estadual (${uf}):`, error.message);
-    throw new Error(`Erro ao consultar CND Estadual (${uf}): ${error.message}`);
+    console.error(`[InfoSimples] Erro na consulta Estadual (${uf}):`, error.message);
+    throw new Error(`Erro na API Real InfoSimples (Estadual): ${error.message}`);
   }
 }
 
-/**
- * Consulta Regularidade FGTS (Caixa) via InfoSimples
- */
 export async function consultarRegularidadeFGTS(
   cnpj: string,
   certificado?: string,
   senha?: string
 ): Promise<RegularidadeFGTSResponse> {
-  const isDev = getIsDev();
   const token = getApiToken();
-
-  if (isDev && (!token || isProbablyTestData(cnpj))) {
-    return getMockFGTS(cnpj);
-  }
-
-  if (!token) {
-    throw new Error("InfoSimples API token not configured");
-  }
+  if (!token) throw new Error("Token InfoSimples não configurado");
 
   try {
     const payload: any = {
+      token: token,
       cnpj: formatarCnpj(cnpj),
       origem: "web"
     };
@@ -371,8 +272,9 @@ export async function consultarRegularidadeFGTS(
       payload.pkcs12_password = senha;
     }
 
+    console.log(`[InfoSimples] Enviando requisição FGTS real para ${cnpj}...`);
     const response = await axios.post(
-      `${getBaseUrl()}/caixa/regularidade?token=${token}`,
+      `${getBaseUrl()}/caixa/regularidade`,
       payload,
       {
         headers: { "Content-Type": "application/json" },
@@ -380,25 +282,14 @@ export async function consultarRegularidadeFGTS(
       }
     );
 
-    if (isDev && !token && response.data.code !== 200) {
-      console.warn("[InfoSimples] API FGTS erro em Dev, enviando mock.");
-      return getMockFGTS(cnpj);
-    }
-
+    console.log(`[InfoSimples] API FGTS Response Code: ${response.data.code}`);
     return response.data;
   } catch (error: any) {
-    if (isDev && !token) {
-      console.warn("[InfoSimples] Erro API FGTS em Dev (sem token), usando Mock:", error.message);
-      return getMockFGTS(cnpj);
-    }
-    console.error("[InfoSimples] Erro ao consultar Regularidade FGTS:", error.message);
-    throw new Error(`Erro ao consultar Regularidade FGTS: ${error.message}`);
+    console.error("[InfoSimples] Erro na consulta FGTS real:", error.message);
+    throw new Error(`Erro na API Real InfoSimples (FGTS): ${error.message}`);
   }
 }
 
-/**
- * Interface para resposta da Caixa Postal e-CAC
- */
 export interface CaixaPostalECACResponse {
   code: number;
   code_message: string;
@@ -421,60 +312,46 @@ export interface CaixaPostalECACResponse {
   };
 }
 
-/**
- * Consulta Caixa Postal e-CAC (DTE - Documentos e Tarefas Eletrônicas) via InfoSimples
- * Retorna mensagens, intimações, autos de infração e avisos da caixa postal
- */
 export async function consultarCaixaPostalECAC(
   cnpj: string,
   certificado?: string,
   senha?: string
 ): Promise<CaixaPostalECACResponse> {
-  if (!getApiToken()) {
-    throw new Error("InfoSimples API token not configured");
-  }
+  const token = getApiToken();
+  if (!token) throw new Error("Token InfoSimples não configurado");
 
   const cnpjLimpo = cnpj.replace(/\D/g, "");
-
-  if (cnpjLimpo.length !== 14) {
-    throw new Error("CNPJ inválido. Deve conter 14 dígitos.");
-  }
+  if (cnpjLimpo.length !== 14) throw new Error("CNPJ inválido (14 dígitos necessários)");
 
   try {
     const payload: any = {
-      token: getApiToken(),
+      token: token,
       cnpj: cnpjLimpo,
     };
 
-    // Se tiver certificado digital para acesso ao e-CAC
     if (certificado) {
-      payload.certificado = certificado;
-    }
-    if (senha) {
-      payload.senha = senha;
+      payload.pkcs12 = certificado;
+      payload.pkcs12_password = senha;
     }
 
+    console.log(`[InfoSimples] Enviando requisição real e-CAC para ${cnpjLimpo}...`);
     const response = await axios.post(
       `${getBaseUrl()}/ecac/caixa-postal`,
       payload,
       {
-        headers: {
-          "Content-Type": "application/json",
-        },
-        timeout: 60000, // Timeout maior pois a consulta pode demorar
+        headers: { "Content-Type": "application/json" },
+        timeout: 60000,
       }
     );
 
+    console.log(`[InfoSimples] API e-CAC Response Code: ${response.data.code}`);
     return response.data;
   } catch (error: any) {
-    console.error("[InfoSimples] Erro ao consultar Caixa Postal e-CAC:", error.message);
-    throw new Error(`Erro ao consultar Caixa Postal e-CAC: ${error.message}`);
+    console.error("[InfoSimples] Erro na consulta e-CAC real:", error.message);
+    throw new Error(`Erro na API Real InfoSimples (e-CAC): ${error.message}`);
   }
 }
 
-/**
- * Valida se o token está configurado corretamente
- */
 export function isInfoSimplesConfigured(): boolean {
   return !!getApiToken();
 }

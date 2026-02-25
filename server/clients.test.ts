@@ -24,7 +24,7 @@ function createAuthContext(): { ctx: TrpcContext } {
       headers: {},
     } as TrpcContext["req"],
     res: {
-      clearCookie: () => {},
+      clearCookie: () => { },
     } as TrpcContext["res"],
   };
 
@@ -36,7 +36,7 @@ describe("clients router", () => {
     const { ctx } = createAuthContext();
     const caller = appRouter.createCaller(ctx);
 
-    const result = await caller.clients.list();
+    const result = await caller.companies.list();
 
     expect(Array.isArray(result)).toBe(true);
   });
@@ -45,9 +45,9 @@ describe("clients router", () => {
     const { ctx } = createAuthContext();
     const caller = appRouter.createCaller(ctx);
 
-    const result = await caller.clients.search({
+    const result = await caller.companies.search({
       searchTerm: "test",
-      regimeTributario: "simples_nacional",
+      taxRegime: "simples_nacional",
     });
 
     expect(Array.isArray(result)).toBe(true);

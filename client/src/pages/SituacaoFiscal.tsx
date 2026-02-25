@@ -58,6 +58,8 @@ export default function SituacaoFiscal() {
   const [situacaoFilter, setSituacaoFilter] = useState("all");
   const [certidaoFilter, setCertidaoFilter] = useState("all");
   const [monitoredClients, setMonitoredClients] = useState<any[]>([]);
+  // Use a ref to track if we've already initialized to avoid loops
+  const [initialized, setInitialized] = useState(false);
 
   // Dialogs
   const [novaConsultaOpen, setNovaConsultaOpen] = useState(false);
@@ -81,16 +83,58 @@ export default function SituacaoFiscal() {
   const consultarCNDEstadual = trpc.apiConsultas.consultarCNDEstadual.useMutation();
   const consultarFGTS = trpc.apiConsultas.consultarRegularidadeFGTS.useMutation();
 
-  // Estatísticas
-  const cndFederalCount = minhasConsultas?.filter(c => c.tipoConsulta === "cnd_federal").length || 0;
-  const cndEstadualCount = minhasConsultas?.filter(c => c.tipoConsulta === "cnd_estadual").length || 0;
-  const fgtsCount = minhasConsultas?.filter(c => c.tipoConsulta === "regularidade_fgts").length || 0;
+  // Estatísticas reais
+  const cndFederalCount = minhasConsultas?.filter(c => c.tipoConsulta === "cnd_federal" && c.sucesso && c.situacao === "REGULAR").length || 0;
+  const cndEstadualCount = minhasConsultas?.filter(c => c.tipoConsulta === "cnd_estadual" && c.sucesso && c.situacao === "REGULAR").length || 0;
+  const fgtsCount = minhasConsultas?.filter(c => c.tipoConsulta === "regularidade_fgts" && c.sucesso && c.situacao === "REGULAR").length || 0;
+
+  // Initialize monitored list from companies if empty
+  if (companies && monitoredClients.length === 0 && !initialized) {
+    setMonitoredClients(companies.map(c => ({
+      ...c,
+      ultimaSituacao: "pendente",
+      resultados: {}
+    })));
+    setInitialized(true);
+  }
+
+  // Map results from minhasConsultas to monitoredClients
+  const clientsWithData = monitoredClients.map(client => {
+    const results: any = {};
+    const clientConsultas = minhasConsultas?.filter(c => c.companyId === client.id) || [];
+
+    // Get latest for each type
+    ["cnd_federal", "cnd_estadual", "regularidade_fgts"].forEach(tipo => {
+      const latest = clientConsultas
+        .filter(c => c.tipoConsulta === tipo)
+        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
+
+      if (latest) {
+        results[tipo === "regularidade_fgts" ? "fgts" : tipo === "cnd_federal" ? "cndFederal" : "cndEstadual"] = {
+          sucesso: latest.sucesso,
+          situacao: latest.situacao,
+          dataValidade: latest.dataValidade,
+          siteReceipt: latest.siteReceipt
+        };
+      }
+    });
+
+    const isRegular = Object.values(results).every((r: any) => r.situacao === "REGULAR" || r.situacao === "SEM PENDÊNCIAS");
+    const hasIrregular = Object.values(results).some((r: any) => r.situacao === "IRREGULAR" || r.situacao === "COM PENDÊNCIAS" || r.situacao === "DÉBITOS ENCONTRADOS");
+
+    return {
+      ...client,
+      resultados: results,
+      ultimaSituacao: hasIrregular ? "irregular" : (isRegular && Object.keys(results).length > 0 ? "regular" : "pendente"),
+      dataConsulta: clientConsultas[0]?.createdAt
+    };
+  });
 
   const stats = {
-    total: monitoredClients.length,
-    regular: monitoredClients.filter((c: any) => c.ultimaSituacao === "regular").length,
-    irregular: monitoredClients.filter((c: any) => c.ultimaSituacao === "irregular").length,
-    pendente: monitoredClients.filter((c: any) => !c.ultimaSituacao).length,
+    total: clientsWithData.length,
+    regular: clientsWithData.filter((c: any) => c.ultimaSituacao === "regular").length,
+    irregular: clientsWithData.filter((c: any) => c.ultimaSituacao === "irregular").length,
+    pendente: clientsWithData.filter((c: any) => c.ultimaSituacao === "pendente").length,
     cndFederalValida: cndFederalCount,
     cndEstadualValida: cndEstadualCount,
     fgtsRegular: fgtsCount,
@@ -123,28 +167,37 @@ export default function SituacaoFiscal() {
     }
 
     setIsConsulting(true);
-
     try {
-      // Consulta apenas no InfoSimples (sem salvar no banco pois não tem clientId)
-      toast.success(`Consulta de ${tipoConsultaManual} realizada para ${consultaCnpj}`);
+      // Search for company in our list
+      const company = companies?.find(c => c.cnpj?.replace(/\D/g, "") === consultaCnpj.replace(/\D/g, ""));
 
-      // Aqui você poderia fazer uma consulta direta à API InfoSimples
-      // Por enquanto vamos apenas simular e adicionar à lista de monitorados temporariamente
-      const newMonitoredClient = {
-        id: Date.now(), // ID temporário
-        cnpj: consultaCnpj,
-        name: consultaRazaoSocial || "Cliente Consultado",
-        tipoConsulta: tipoConsultaManual,
-        ultimaSituacao: "pendente",
-        dataConsulta: new Date().toISOString(),
-      };
+      if (!company) {
+        toast.error("CNPJ não encontrado na sua base de clientes. Por favor, cadastre o cliente primeiro.");
+        return;
+      }
 
-      setMonitoredClients([...monitoredClients, newMonitoredClient]);
+      toast.info(`Iniciando consulta Real para ${company.name}...`);
+
+      let result;
+      if (tipoConsultaManual === "cnd_federal") {
+        result = await consultarCNDFederal.mutateAsync({ companyId: company.id });
+      } else if (tipoConsultaManual === "cnd_estadual") {
+        result = await consultarCNDEstadual.mutateAsync({ companyId: company.id });
+      } else if (tipoConsultaManual === "regularidade_fgts") {
+        result = await consultarFGTS.mutateAsync({ companyId: company.id });
+      }
+
+      if (result?.sucesso) {
+        toast.success("Consulta finalizada com sucesso!");
+        refetchConsultas();
+      } else {
+        toast.error("Erro na consulta: " + (result?.mensagem || "Erro desconhecido"));
+      }
+
       setNovaConsultaOpen(false);
       setConsultaCnpj("");
-      setConsultaRazaoSocial("");
     } catch (error: any) {
-      toast.error("Erro na consulta: " + error.message);
+      toast.error("Erro: " + error.message);
     } finally {
       setIsConsulting(false);
     }
@@ -476,7 +529,7 @@ export default function SituacaoFiscal() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {monitoredClients.length === 0 ? (
+                {clientsWithData.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={9} className="h-32 text-center">
                       <div className="flex flex-col items-center justify-center text-muted-foreground">
@@ -487,7 +540,7 @@ export default function SituacaoFiscal() {
                     </TableCell>
                   </TableRow>
                 ) : (
-                  monitoredClients.map((client: any) => (
+                  clientsWithData.map((client: any) => (
                     <TableRow key={client.id}>
                       <TableCell>
                         {client.ultimaSituacao === "regular" ? (
@@ -536,10 +589,31 @@ export default function SituacaoFiscal() {
                           <Button
                             size="sm"
                             variant="ghost"
+                            title="Consultar Tudo"
                             onClick={() => handleConsultarCliente(client)}
                           >
                             <RefreshCw className="h-4 w-4" />
                           </Button>
+
+                          {/* Botão Baixar Certidão Real */}
+                          {(client.resultados?.cndFederal?.siteReceipt || client.resultados?.cndEstadual?.siteReceipt || client.resultados?.fgts?.siteReceipt) && (
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50"
+                              title="Baixar Certidão Real"
+                              onClick={() => {
+                                const receipt = client.resultados?.cndFederal?.siteReceipt ||
+                                  client.resultados?.cndEstadual?.siteReceipt ||
+                                  client.resultados?.fgts?.siteReceipt;
+                                if (receipt) window.open(receipt, "_blank");
+                                else toast.error("Recibo não disponível (apenas situação detectada)");
+                              }}
+                            >
+                              <FileCheck className="h-4 w-4" />
+                            </Button>
+                          )}
+
                           <Button
                             size="sm"
                             variant="ghost"

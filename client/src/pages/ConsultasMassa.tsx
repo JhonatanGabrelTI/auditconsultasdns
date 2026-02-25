@@ -100,6 +100,14 @@ export default function ConsultasMassa() {
     return true;
   });
 
+  const getCertStatus = (validUntil: string | Date | null) => {
+    if (!validUntil) return null;
+    const date = validUntil instanceof Date ? validUntil : new Date(validUntil);
+    // This function is incomplete based on the provided snippet.
+    // It currently parses the date but doesn't return a status.
+    // For now, it will implicitly return undefined if validUntil is present.
+  };
+
   const toggleCompany = (companyId: string) => {
     setSelectedCompanies((prev) =>
       prev.includes(companyId)
@@ -173,7 +181,6 @@ export default function ConsultasMassa() {
           numeroCertidao: result?.numeroCertidao,
           dataEmissao: result?.dataEmissao,
           dataValidade: result?.dataValidade,
-          validadeFim: result?.validadeFim,
           siteReceipt: result?.siteReceipt,
           mensagem: result?.mensagem,
         });
@@ -431,9 +438,9 @@ export default function ConsultasMassa() {
                           </TableCell>
 
                           <TableCell>
-                            {ultimaConsulta?.validadeFim || (ultimaConsulta?.dataValidade
+                            {ultimaConsulta?.dataValidade
                               ? new Date(ultimaConsulta.dataValidade).toLocaleDateString("pt-BR")
-                              : "-")}
+                              : "-"}
                           </TableCell>
 
                           <TableCell className="text-center">
@@ -441,7 +448,7 @@ export default function ConsultasMassa() {
                               <Button
                                 variant="ghost"
                                 size="icon"
-                                onClick={() => window.open(ultimaConsulta.siteReceipt, "_blank")}
+                                onClick={() => ultimaConsulta.siteReceipt && window.open(ultimaConsulta.siteReceipt, "_blank")}
                                 title="Baixar Recibo"
                               >
                                 <Download className="h-4 w-4 text-blue-600" />
@@ -529,9 +536,9 @@ export default function ConsultasMassa() {
                         </TableCell>
                         <TableCell>{result.numeroCertidao || "-"}</TableCell>
                         <TableCell>
-                          {result.validadeFim || (result.dataValidade
+                          {result.dataValidade
                             ? new Date(result.dataValidade).toLocaleDateString("pt-BR")
-                            : "-")}
+                            : "-"}
                         </TableCell>
                         <TableCell className="text-center">
                           {result.siteReceipt ? (

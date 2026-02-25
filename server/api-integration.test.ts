@@ -25,7 +25,7 @@ function createAuthContext(): { ctx: TrpcContext } {
       headers: {},
     } as TrpcContext["req"],
     res: {
-      clearCookie: () => {},
+      clearCookie: () => { },
     } as TrpcContext["res"],
   };
 
@@ -45,7 +45,7 @@ describe("API Integration - InfoSimples", () => {
 
   it("should have api_consultas table helpers", async () => {
     expect(db.createApiConsulta).toBeDefined();
-    expect(db.getApiConsultasByClient).toBeDefined();
+    expect(db.getApiConsultasByCompany).toBeDefined();
     expect(db.getApiConsultasByUser).toBeDefined();
     expect(db.getLatestApiConsulta).toBeDefined();
   });

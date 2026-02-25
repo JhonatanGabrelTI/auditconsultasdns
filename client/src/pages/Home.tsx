@@ -25,6 +25,21 @@ export default function Home() {
   const totalClients = clients?.length || 0;
   const unreadNotifications = notifications?.filter(n => !n.read).length || 0;
 
+  // Real certificate stats
+  const { data: allCerts } = trpc.certificates.listAll.useQuery();
+  const certsTotal = allCerts?.length || 0;
+  const certsAtencao = allCerts?.filter(c => {
+    const validUntil = c.certificate.validUntil;
+    if (!validUntil) return true;
+    const daysLeft = Math.ceil((new Date(validUntil).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+    return daysLeft <= 30;
+  }).length || 0;
+  const certsVencidos = allCerts?.filter(c => {
+    const validUntil = c.certificate.validUntil;
+    if (!validUntil) return true;
+    return new Date(validUntil) <= new Date();
+  }).length || 0;
+
   return (
     <DashboardLayout>
       <div className="container py-6 space-y-6">
@@ -203,16 +218,16 @@ export default function Home() {
               <div className="space-y-4">
                 <div className="grid grid-cols-3 gap-3">
                   <div className="text-center p-3 rounded-lg bg-green-500/10 border border-green-500/20">
-                    <p className="text-2xl font-bold text-green-500">0</p>
+                    <p className="text-2xl font-bold text-green-500">{certsTotal}</p>
                     <p className="text-xs text-muted-foreground mt-1">Integrados</p>
                   </div>
                   <div className="text-center p-3 rounded-lg bg-yellow-500/10 border border-yellow-500/20">
-                    <p className="text-2xl font-bold text-yellow-500">0</p>
+                    <p className="text-2xl font-bold text-yellow-500">{certsAtencao}</p>
                     <p className="text-xs text-muted-foreground mt-1">A vencer</p>
                   </div>
                   <div className="text-center p-3 rounded-lg bg-red-500/10 border border-red-500/20">
-                    <p className="text-2xl font-bold text-red-500">0</p>
-                    <p className="text-xs text-muted-foreground mt-1">Atenção</p>
+                    <p className="text-2xl font-bold text-red-500">{certsVencidos}</p>
+                    <p className="text-xs text-muted-foreground mt-1">Vencidos</p>
                   </div>
                 </div>
 
