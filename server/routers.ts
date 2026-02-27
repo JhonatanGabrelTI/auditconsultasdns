@@ -10,13 +10,21 @@ function friendlyApiMessage(code: number, fallbackMsg?: string): string {
   const messages: Record<number, string> = {
     600: "Limite de consultas atingido. Aguarde alguns minutos e tente novamente.",
     604: "Não foi possível acessar o site de origem. Tente novamente mais tarde.",
-    606: "Erro no processamento da consulta. Verifique os dados e tente novamente.",
+    606: "Erro no processamento interno do site de origem (ex: timeout ou erro inesperado). Tente novamente.",
     607: "Parâmetro inválido (CNPJ/CPF). Verifique se o documento está correto.",
     609: "Limite de tentativas da API excedido. Aguarde alguns minutos e tente novamente.",
-    611: "O site da Receita Federal/Caixa está temporariamente fora do ar. Tente mais tarde.",
+    611: "Dados insuficientes ou divergentes para emissão automática pela internet. Verifique pendências no órgão.",
     617: "Empresa não cadastrada no órgão consultado ou dados não encontrados.",
   };
   return messages[code] || fallbackMsg || `Erro desconhecido (código ${code})`;
+}
+
+// Extrai e junta os erros específicos retornados pela API
+function getApiErrorDetails(resultado: any): string | undefined {
+  if (resultado.errors && Array.isArray(resultado.errors) && resultado.errors.length > 0) {
+    return resultado.errors.join("; ");
+  }
+  return undefined;
 }
 
 export const appRouter = router({
@@ -665,7 +673,9 @@ export const appRouter = router({
             dataEmissao: dataEmissao,
             dataValidade: dataValidade,
             siteReceipt: siteReceipt,
-            mensagem: resultado.code !== 200 ? friendlyApiMessage(resultado.code, resultado.code_message) : undefined,
+            mensagem: resultado.code !== 200
+              ? `${friendlyApiMessage(resultado.code, resultado.code_message)}${getApiErrorDetails(resultado) ? ' [Motivo: ' + getApiErrorDetails(resultado) + ']' : ''}`
+              : undefined,
             respostaCompleta: JSON.stringify(resultado),
           };
         } catch (error: any) {
@@ -759,7 +769,9 @@ export const appRouter = router({
             dataEmissao: data?.data_emissao,
             dataValidade: data?.data_validade,
             siteReceipt: siteReceipt,
-            mensagem: resultado.code !== 200 ? friendlyApiMessage(resultado.code, resultado.code_message) : undefined,
+            mensagem: resultado.code !== 200
+              ? `${friendlyApiMessage(resultado.code, resultado.code_message)}${getApiErrorDetails(resultado) ? ' [Motivo: ' + getApiErrorDetails(resultado) + ']' : ''}`
+              : undefined,
             respostaCompleta: JSON.stringify(resultado),
           };
         } catch (error: any) {
@@ -855,7 +867,9 @@ export const appRouter = router({
             dataEmissao: data?.data_emissao,
             dataValidade: data?.data_validade,
             siteReceipt: siteReceipt,
-            mensagem: resultado.code !== 200 ? friendlyApiMessage(resultado.code, resultado.code_message) : undefined,
+            mensagem: resultado.code !== 200
+              ? `${friendlyApiMessage(resultado.code, resultado.code_message)}${getApiErrorDetails(resultado) ? ' [Motivo: ' + getApiErrorDetails(resultado) + ']' : ''}`
+              : undefined,
             respostaCompleta: JSON.stringify(resultado),
           };
         } catch (error: any) {

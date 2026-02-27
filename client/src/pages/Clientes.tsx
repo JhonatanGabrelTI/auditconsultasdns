@@ -583,12 +583,27 @@ export default function Clientes() {
   const activeClients = clients?.filter(c => c.active).length || 0;
   const clientsWithoutCertificate = clients?.filter(c => !c.certificatePath).length || 0;
 
+  const now = new Date();
+  const thirtyDaysFromNow = new Date();
+  thirtyDaysFromNow.setDate(now.getDate() + 30);
+
+  const expiredCertificates = clients?.filter(c => {
+    if (!c.certificateExpiresAt) return false;
+    return new Date(c.certificateExpiresAt) < now;
+  }).length || 0;
+
+  const expiringSoon = clients?.filter(c => {
+    if (!c.certificateExpiresAt) return false;
+    const expiresAt = new Date(c.certificateExpiresAt);
+    return expiresAt > now && expiresAt < thirtyDaysFromNow;
+  }).length || 0;
+
   const stats = [
-    { label: "Total", value: totalClients, icon: Users, color: "text-slate-600 dark:text-slate-400", bg: "bg-slate-100 dark:bg-slate-800/50", border: "border-slate-200 dark:border-slate-700" },
-    { label: "Ativo", value: activeClients, icon: CheckCircle, color: "text-emerald-600 dark:text-emerald-500", bg: "bg-emerald-100 dark:bg-emerald-950/30", border: "border-emerald-200 dark:border-emerald-900/50" },
-    { label: "Sem certificado", value: clientsWithoutCertificate, icon: FileText, color: "text-blue-600 dark:text-blue-500", bg: "bg-blue-100 dark:bg-blue-950/30", border: "border-blue-200 dark:border-blue-900/50" },
-    { label: "Em breve", value: "0", icon: Clock, color: "text-amber-600 dark:text-amber-500", bg: "bg-amber-100 dark:bg-amber-950/30", border: "border-amber-200 dark:border-amber-900/50" },
-    { label: "Vencidos/Inválidos", value: "0", icon: AlertTriangle, color: "text-rose-600 dark:text-rose-500", bg: "bg-rose-100 dark:bg-rose-950/30", border: "border-rose-200 dark:border-rose-900/50" },
+    { label: "Total Clientes", value: totalClients, icon: Users, color: "text-slate-600 dark:text-slate-400", bg: "bg-slate-100 dark:bg-slate-800/50", border: "border-slate-200 dark:border-slate-700" },
+    { label: "Ativos", value: activeClients, icon: CheckCircle, color: "text-emerald-600 dark:text-emerald-500", bg: "bg-emerald-100 dark:bg-emerald-950/30", border: "border-emerald-200 dark:border-emerald-900/50" },
+    { label: "Sem Certificado", value: clientsWithoutCertificate, icon: FileText, color: "text-blue-600 dark:text-blue-500", bg: "bg-blue-100 dark:bg-blue-950/30", border: "border-blue-200 dark:border-blue-900/50" },
+    { label: "Vence em 30 dias", value: expiringSoon, icon: Clock, color: "text-amber-600 dark:text-amber-500", bg: "bg-amber-100 dark:bg-amber-950/30", border: "border-amber-200 dark:border-amber-900/50" },
+    { label: "Vencidos", value: expiredCertificates, icon: AlertTriangle, color: "text-rose-600 dark:text-rose-500", bg: "bg-rose-100 dark:bg-rose-950/30", border: "border-rose-200 dark:border-rose-900/50" },
   ];
 
   const handleBulkDownload = () => {
@@ -975,7 +990,7 @@ export default function Clientes() {
                       <div className="space-y-2">
                         <Label className="text-xs text-muted-foreground uppercase">Detalhes técnicos</Label>
                         <div className="p-2 rounded bg-slate-900 border border-slate-800 overflow-x-auto max-h-40">
-                          <pre className="text-[10px] font-mono text-slate-400">
+                          <pre className="text-[10px] font-mono text-slate-400 whitespace-pre-wrap break-all">
                             {(() => {
                               try {
                                 return JSON.stringify(JSON.parse(consultaResult.respostaCompleta), null, 2);
