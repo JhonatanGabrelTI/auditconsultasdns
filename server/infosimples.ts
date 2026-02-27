@@ -218,22 +218,26 @@ export async function consultarCNDEstadual(
   try {
     const payload: any = {
       token: token,
-      ie: inscricaoEstadual,
       origem: "web"
     };
 
-    if (certificado) {
-      payload.pkcs12 = certificado;
-      payload.pkcs12_password = senha;
+    if (inscricaoEstadual && inscricaoEstadual.trim() !== "") {
+      payload.ie = inscricaoEstadual.replace(/\D/g, "");
     }
 
     if (cnpj) {
       payload.cnpj = cnpj.replace(/\D/g, "");
     }
 
-    const statePath = uf.toLowerCase() === "pr" ? "sefaz/pr/certidao-debitos" : `sefaz/${uf.toLowerCase()}/certidao-negativa`;
+    if (certificado) {
+      payload.pkcs12 = certificado;
+      payload.pkcs12_password = senha;
+    }
 
-    console.log(`[InfoSimples] Enviando requisição Estadual real para ${inscricaoEstadual} (${uf})...`);
+    // O usuário reportou que sefaz/pr é o endpoint correto agora
+    const statePath = uf.toLowerCase() === "pr" ? "sefaz/pr" : `sefaz/${uf.toLowerCase()}/certidao-negativa`;
+
+    console.log(`[InfoSimples] Enviando requisição Estadual real para ${inscricaoEstadual || cnpj} (${uf})...`);
     const response = await axios.post(
       `${getBaseUrl()}/${statePath}`,
       payload,

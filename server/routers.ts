@@ -702,8 +702,8 @@ export const appRouter = router({
           throw new Error("Empresa não encontrada");
         }
 
-        if (!company.inscricaoEstadual) {
-          throw new Error("Empresa não possui Inscrição Estadual cadastrada");
+        if (!company.inscricaoEstadual && !company.cnpj) {
+          throw new Error("Empresa não possui Inscrição Estadual nem CNPJ cadastrado para consulta");
         }
 
         const { consultarCNDEstadual, isValidCNPJ, parseBrazilianDate, getIsDev } = await import("./infosimples");
@@ -735,9 +735,9 @@ export const appRouter = router({
           console.log(`[CND Estadual] Iniciando consulta para ${company.inscricaoEstadual} (${uf})`);
 
           const resultado = await consultarCNDEstadual(
-            company.inscricaoEstadual,
+            company.inscricaoEstadual || undefined,
             company.uf || "PR",
-            company.personType === "juridica" ? (company.cnpj || undefined) : undefined,
+            company.cnpj || undefined,
             certPath,
             certPass
           );
