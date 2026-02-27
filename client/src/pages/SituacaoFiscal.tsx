@@ -92,7 +92,8 @@ export default function SituacaoFiscal() {
   if (companies && monitoredClients.length === 0 && !initialized) {
     setMonitoredClients(companies.map(c => ({
       ...c,
-      ultimaSituacao: "pendente",
+      // Usar status do banco se existir, senão pendente
+      ultimaSituacao: c.ultimaSituacao || "pendente",
       resultados: {}
     })));
     setInitialized(true);
@@ -120,14 +121,21 @@ export default function SituacaoFiscal() {
     });
 
     const resultValues = Object.values(results);
-    const isRegular = resultValues.length > 0 && resultValues.every((r: any) => r.situacao === "REGULAR" || r.situacao === "SEM PENDÊNCIAS");
-    const hasIrregular = resultValues.some((r: any) => r.situacao === "IRREGULAR" || r.situacao === "COM PENDÊNCIAS" || r.situacao === "DÉBITOS ENCONTRADOS");
+    const isRegular = resultValues.length > 0 && resultValues.every((r: any) => {
+      const s = r.situacao?.toLowerCase() || "";
+      return s.includes("regular") || s.includes("negativa") || s.includes("consta");
+    });
+
+    const hasIrregular = resultValues.some((r: any) => {
+      const s = r.situacao?.toLowerCase() || "";
+      return s.includes("irregular") || s.includes("positiva") || s.includes("débitos");
+    });
 
     return {
       ...client,
       resultados: results,
-      ultimaSituacao: hasIrregular ? "irregular" : (isRegular && Object.keys(results).length > 0 ? "regular" : "pendente"),
-      dataConsulta: clientConsultas[0]?.createdAt
+      ultimaSituacao: hasIrregular ? "irregular" : (isRegular && Object.keys(results).length > 0 ? "regular" : (client.ultimaSituacao || "pendente")),
+      dataConsulta: client.dataConsulta || clientConsultas[0]?.createdAt
     };
   });
 
@@ -266,9 +274,10 @@ export default function SituacaoFiscal() {
       }
 
       // Atualizar situação
-      const situacao = resultados.cndFederal?.situacao?.toLowerCase().includes("regular")
-        ? "regular"
-        : "irregular";
+      const lowerFed = resultados.cndFederal?.situacao?.toLowerCase() || "";
+      const isFedRegular = lowerFed.includes("regular") || lowerFed.includes("negativa") || lowerFed.includes("consta");
+
+      const situacao = isFedRegular ? "regular" : "irregular";
 
       const updatedClients = monitoredClients.map((c: any) =>
         c.id === client.id
@@ -544,13 +553,15 @@ export default function SituacaoFiscal() {
                   clientsWithData.map((client: any) => (
                     <TableRow key={client.id}>
                       <TableCell>
-                        {client.ultimaSituacao === "regular" ? (
-                          <Badge className="bg-green-100 text-green-800">Regular</Badge>
-                        ) : client.ultimaSituacao === "irregular" ? (
-                          <Badge className="bg-red-100 text-red-800">Irregular</Badge>
-                        ) : (
-                          <Badge variant="outline">Pendente</Badge>
-                        )}
+                        {(() => {
+                          const sit = client.ultimaSituacao?.toLowerCase() || "";
+                          const isRegular = sit.includes("regular") || sit.includes("negativa") || sit.includes("consta");
+                          const isIrregular = sit.includes("irregular") || sit.includes("positiva") || sit.includes("débitos");
+
+                          if (isRegular) return <Badge className="bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400 border-green-200">Regular</Badge>;
+                          if (isIrregular) return <Badge className="bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400 border-red-200">Irregular</Badge>;
+                          return <Badge variant="outline">Pendente</Badge>;
+                        })()}
                       </TableCell>
                       <TableCell>
                         {client.resultados?.cndFederal?.sucesso ? (

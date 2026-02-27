@@ -81,6 +81,7 @@ export default function ConsultasMassa() {
   const [showResults, setShowResults] = useState(false);
   const [regimeFilter, setRegimeFilter] = useState<string>("all");
 
+  const utils = trpc.useContext();
   const { data: companies, isLoading } = trpc.companies.list.useQuery(); // Changed from clients.list
   const { data: consultasAnteriores } = trpc.apiConsultas.minhasConsultas.useQuery();
 
@@ -148,16 +149,6 @@ export default function ConsultasMassa() {
         if (tipoConsulta === "cnd_federal") {
           result = await consultarCNDFederal.mutateAsync({ companyId: company.id });
         } else if (tipoConsulta === "cnd_estadual") {
-          if (!company.inscricaoEstadual) {
-            newResults.push({
-              companyId: company.id,
-              company,
-              sucesso: false,
-              situacao: "Erro",
-              mensagem: "Inscrição Estadual não cadastrada",
-            });
-            continue;
-          }
           result = await consultarCNDEstadual.mutateAsync({ companyId: company.id });
         } else if (tipoConsulta === "regularidade_fgts") {
           if (company.personType !== "juridica") {
@@ -185,12 +176,17 @@ export default function ConsultasMassa() {
           mensagem: result?.mensagem,
         });
       } catch (error: any) {
+        // Extract clean message from tRPC errors
+        const rawMsg = error?.message || "Erro desconhecido";
+        // Truncate very long error messages for cleaner UI
+        const cleanMsg = rawMsg.length > 80 ? rawMsg.substring(0, 77) + "..." : rawMsg;
+
         newResults.push({
           companyId: company.id,
           company,
           sucesso: false,
-          situacao: "Erro",
-          mensagem: error.message,
+          situacao: "ERRO",
+          mensagem: cleanMsg,
         });
       }
     }
@@ -199,6 +195,10 @@ export default function ConsultasMassa() {
     setIsConsulting(false);
     setProgress(100);
     toast.success("Consulta em massa concluída!");
+
+    // Refresh the queries so the table reflects the new normalized DB statuses
+    utils.apiConsultas.minhasConsultas.invalidate();
+    utils.companies.list.invalidate();
   };
 
   const exportarResultados = () => {
@@ -424,10 +424,12 @@ export default function ConsultasMassa() {
                           <TableCell>
                             {ultimaConsulta?.situacao ? (
                               <Badge
-                                variant={
-                                  ultimaConsulta.situacao?.toLowerCase().includes("regular")
-                                    ? "default"
-                                    : "destructive"
+                                className={
+                                  ultimaConsulta.situacao?.toLowerCase().includes("regular") ||
+                                    ultimaConsulta.situacao?.toLowerCase().includes("consta") ||
+                                    ultimaConsulta.situacao?.toLowerCase().includes("negativa")
+                                    ? "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400 border-green-200"
+                                    : "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400 border-red-200"
                                 }
                               >
                                 {ultimaConsulta.situacao}
@@ -528,11 +530,22 @@ export default function ConsultasMassa() {
                         <TableCell>{result.company.cnpj || result.company.cpf}</TableCell>
                         <TableCell>{result.company.name}</TableCell>
                         <TableCell>
-                          <Badge
-                            variant={result.situacao?.toLowerCase() === "regular" ? "default" : "destructive"}
-                          >
-                            {result.situacao}
-                          </Badge>
+                          {(() => {
+                            const sit = result.situacao?.toLowerCase() || "";
+                            const isSuccess = sit.includes("regular") || sit.includes("consta") || sit.includes("negativa");
+                            const isError = sit.includes("irregular") || sit.includes("positiva") || sit.includes("débitos");
+                            const isWarning = sit.includes("inválido") || sit.includes("incompleto") || sit.includes("ausente") || sit === "erro";
+
+                            let badgeClass = "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400 border-red-200";
+                            if (isSuccess) badgeClass = "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400 border-green-200";
+                            else if (isWarning) badgeClass = "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400 border-amber-200";
+
+                            return (
+                              <Badge className={badgeClass}>
+                                {result.situacao}
+                              </Badge>
+                            );
+                          })()}
                         </TableCell>
                         <TableCell>{result.numeroCertidao || "-"}</TableCell>
                         <TableCell>

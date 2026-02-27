@@ -952,9 +952,21 @@ export default function Clientes() {
                     </div>
 
                     {consultaResult.situacao && (
-                      <div>
+                      <div className="space-y-1">
                         <Label>Situação</Label>
-                        <p className="text-lg font-semibold">{consultaResult.situacao}</p>
+                        <div>
+                          <Badge
+                            variant={
+                              consultaResult.situacao.toLowerCase().includes("regular") ||
+                                consultaResult.situacao.toLowerCase().includes("consta") ||
+                                consultaResult.situacao.toLowerCase().includes("negativa")
+                                ? "default" : "destructive"
+                            }
+                            className="text-base px-3 py-1"
+                          >
+                            {consultaResult.situacao}
+                          </Badge>
+                        </div>
                       </div>
                     )}
 

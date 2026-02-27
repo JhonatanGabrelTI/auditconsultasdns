@@ -206,7 +206,7 @@ export async function consultarCNDFederal(
 }
 
 export async function consultarCNDEstadual(
-  inscricaoEstadual: string,
+  inscricaoEstadual?: string,
   uf: string = "PR",
   cnpj?: string,
   certificado?: string,

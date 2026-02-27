@@ -64,6 +64,10 @@ export const companies = pgTable("companies", {
   // Localização
   uf: varchar("uf", { length: 2 }), // UF para consultas estaduais
 
+  // Status de consulta (Cache para o dashboard)
+  ultimaSituacao: text("ultimaSituacao"),
+  dataConsulta: timestamp("dataConsulta"),
+
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().$onUpdate(() => new Date()).notNull(),
 });

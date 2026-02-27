@@ -27,6 +27,54 @@ function getApiErrorDetails(resultado: any): string | undefined {
   return undefined;
 }
 
+// Normaliza a situação para algo humano (Regular, Irregular, etc)
+// Evita mensagens técnicas como "A requisição foi processada com sucesso"
+function normalizeSituacao(rawSituacao: string | undefined, code: number): string {
+  if (!rawSituacao) return "DESCONHECIDO";
+
+  const upper = rawSituacao.toUpperCase();
+
+  // Se for uma mensagem técnica de sucesso da InfoSimples, ou um texto de certificado muito longo
+  // tentamos simplificar para o status real
+  if (upper.includes("PROCESSADA COM SUCESSO") ||
+    upper.includes("CONCLUÍDO") ||
+    upper.includes("SUCESSO") ||
+    upper.includes("CONSULTA REALIZADA") ||
+    (upper.includes("CERTIDÃO NEGATIVA") && upper.length > 50)) {
+    return code === 200 ? "REGULAR" : "IRREGULAR";
+  }
+
+  if (upper.includes("NADA CONSTA") ||
+    upper.includes("NEGATIVA") ||
+    upper.includes("REGULAR") ||
+    upper.includes("ESTÁ REGULAR") ||
+    upper.includes("CERTIDÃO NEGATIVA")) {
+    return "REGULAR";
+  }
+
+  if (upper.includes("POSITIVA") && upper.includes("EFEITO DE NEGATIVA")) {
+    return "REGULAR (Pos. c/ efeito Neg.)";
+  }
+
+  if (upper.includes("DÉBITOS") || upper.includes("IRREGULAR") || upper.includes("POSITIVA")) {
+    return "IRREGULAR";
+  }
+
+  // Normalização para casos de dados incompletos ou erros de origem que geram textos longos
+  if (upper.includes("DADOS ESTÃO INCOMPLETOS") ||
+    upper.includes("INCOMPLETOS NO SITE") ||
+    upper.includes("NÃO PUDERAM SER RETORNADOS")) {
+    return "DADOS INCOMPLETOS";
+  }
+
+  // Fallback: se o texto for muito longo e não for um dos casos acima, truncamos para manter o UI limpo
+  if (rawSituacao && rawSituacao.length > 40) {
+    return rawSituacao.substring(0, 37) + "...";
+  }
+
+  return rawSituacao;
+}
+
 export const appRouter = router({
   system: systemRouter,
 
@@ -603,19 +651,19 @@ export const appRouter = router({
 
         const isCnpj = (documento.replace(/\D/g, "").length || 0) >= 14;
 
-        // Validação local antes de gastar crédito ou dar erro 607 (Relaxado em Dev)
-        if (isCnpj && !isValidCNPJ(documento) && !getIsDev()) {
-          const errMsg = "CNPJ estruturalmente inválido (falha no dígito verificador)";
+        // Validação local SEMPRE (evita gastar créditos da API com CNPJs inválidos)
+        if (isCnpj && !isValidCNPJ(documento)) {
+          const errMsg = "CNPJ estruturalmente inválido (falha no dígito verificador). Verifique se o documento está correto.";
           await db.createApiConsulta({
             companyId: input.companyId,
             userId: ctx.user.id,
             tipoConsulta: "cnd_federal",
             sucesso: false,
             mensagemErro: errMsg,
-            situacao: "DADO INVÁLIDO",
+            situacao: "CNPJ INVÁLIDO",
             respostaCompleta: JSON.stringify({ error: errMsg, cnpj: documento }),
           });
-          return { sucesso: false, mensagem: errMsg, situacao: "DADO INVÁLIDO" };
+          return { sucesso: false, mensagem: errMsg, situacao: "CNPJ INVÁLIDO" };
         }
 
         try {
@@ -645,8 +693,8 @@ export const appRouter = router({
           console.log(`[CND Federal] Resultado bruto code: ${resultado.code}`);
           const data = Array.isArray(resultado.data) ? resultado.data[0] : resultado.data;
 
-          // Mapeamento ainda mais robusto
-          const situacao = data?.situacao || data?.mensagem || (data?.conseguiu_emitir_certidao_negativa ? "REGULAR" : undefined) || resultado.code_message || "DESCONHECIDO";
+          const rawSituacao = data?.situacao || data?.mensagem || (data?.conseguiu_emitir_certidao_negativa ? "REGULAR" : undefined) || resultado.code_message || "DESCONHECIDO";
+          const situacao = normalizeSituacao(rawSituacao, resultado.code);
           const numeroCertidao = data?.numero_certidao || data?.certidao_codigo || data?.numero_protocolo;
           const dataEmissao = data?.data_emissao || data?.emissao_data;
           const dataValidade = data?.data_validade || data?.validade;
@@ -665,6 +713,14 @@ export const appRouter = router({
             sucesso: resultado.code === 200,
             mensagemErro: resultado.code !== 200 ? resultado.code_message : undefined,
           });
+
+          // Atualizar situação na tabela companies
+          if (resultado.code === 200) {
+            await db.updateCompany(input.companyId, {
+              ultimaSituacao: situacao,
+              dataConsulta: new Date()
+            });
+          }
 
           return {
             sucesso: resultado.code === 200,
@@ -744,7 +800,8 @@ export const appRouter = router({
 
           console.log(`[CND Estadual] Resultado bruto code: ${resultado.code}`);
           const data = Array.isArray(resultado.data) ? resultado.data[0] : resultado.data;
-          const situacao = data?.situacao || data?.mensagem || resultado.code_message || "DESCONHECIDO";
+          const rawSituacao = data?.situacao || data?.mensagem || resultado.code_message || "DESCONHECIDO";
+          const situacao = normalizeSituacao(rawSituacao, resultado.code);
           const numeroCertidao = data?.numero_certidao || data?.numero_protocolo || data?.id_consulta;
           const siteReceipt = data?.site_receipt || (resultado.site_receipts && resultado.site_receipts[0]);
 
@@ -761,6 +818,14 @@ export const appRouter = router({
             sucesso: resultado.code === 200,
             mensagemErro: resultado.code !== 200 ? resultado.code_message : undefined,
           });
+
+          // Atualizar situação na tabela companies
+          if (resultado.code === 200) {
+            await db.updateCompany(input.companyId, {
+              ultimaSituacao: situacao,
+              dataConsulta: new Date()
+            });
+          }
 
           return {
             sucesso: resultado.code === 200,
@@ -809,10 +874,10 @@ export const appRouter = router({
           cnpj = "0" + cnpj.replace(/\D/g, "");
         }
 
-        // Validação local (Relaxado em Dev)
-        if (cnpj && !isValidCNPJ(cnpj) && !getIsDev()) {
-          const errMsg = "CNPJ estruturalmente inválido para consulta FGTS";
-          return { sucesso: false, mensagem: errMsg, situacao: "DADO INVÁLIDO" };
+        // Validação local SEMPRE (evita gastar créditos da API com CNPJs inválidos)
+        if (cnpj && !isValidCNPJ(cnpj)) {
+          const errMsg = "CNPJ estruturalmente inválido para consulta FGTS. Verifique se o documento está correto.";
+          return { sucesso: false, mensagem: errMsg, situacao: "CNPJ INVÁLIDO" };
         }
 
         try {
@@ -840,9 +905,9 @@ export const appRouter = router({
             certPass
           );
 
-          console.log(`[Regularidade FGTS] Resultado bruto code: ${resultado.code}`);
           const data = Array.isArray(resultado.data) ? resultado.data[0] : resultado.data;
-          const situacao = data?.situacao || data?.status || resultado.code_message || "DESCONHECIDO";
+          const rawSituacao = data?.situacao || data?.status || resultado.code_message || "DESCONHECIDO";
+          const situacao = normalizeSituacao(rawSituacao, resultado.code);
           const numeroCertidao = data?.numero_crf || data?.certidao_numero || data?.inscricao;
           const siteReceipt = data?.site_receipt || (resultado.site_receipts && resultado.site_receipts[0]);
 
@@ -859,6 +924,15 @@ export const appRouter = router({
             sucesso: resultado.code === 200,
             mensagemErro: resultado.code !== 200 ? resultado.code_message : undefined,
           });
+
+          // Atualizar situação na tabela companies (para FGTS, usamos CND Federal como mestre no Monitor Hub, 
+          // mas atualizamos a data e situação se for relevante)
+          if (resultado.code === 200) {
+            await db.updateCompany(input.companyId, {
+              ultimaSituacao: situacao,
+              dataConsulta: new Date()
+            });
+          }
 
           return {
             sucesso: resultado.code === 200,
