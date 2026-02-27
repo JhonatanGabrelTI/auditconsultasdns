@@ -179,7 +179,7 @@ export async function consultarCNDFederal(
       payload.cpf = documentoLimpo;
       payload.birthdate = dataNascimento;
     } else {
-      payload.cnpj = formatarCnpj(documentoLimpo);
+      payload.cnpj = documentoLimpo;
       payload.preferencia_emissao = preferenciaEmissao;
     }
 
@@ -188,7 +188,6 @@ export async function consultarCNDFederal(
       payload.pkcs12_password = senha;
     }
 
-    console.log(`[InfoSimples] Enviando requisição Federal real para ${documentoLimpo}...`);
     const response = await axios.post(
       `${getBaseUrl()}/receita-federal/pgfn/nova`,
       payload,
@@ -229,7 +228,7 @@ export async function consultarCNDEstadual(
     }
 
     if (cnpj) {
-      payload.cnpj = formatarCnpj(cnpj);
+      payload.cnpj = cnpj.replace(/\D/g, "");
     }
 
     const statePath = uf.toLowerCase() === "pr" ? "sefaz/pr/certidao-debitos" : `sefaz/${uf.toLowerCase()}/certidao-negativa`;
@@ -263,7 +262,7 @@ export async function consultarRegularidadeFGTS(
   try {
     const payload: any = {
       token: token,
-      cnpj: formatarCnpj(cnpj),
+      cnpj: cnpj.replace(/\D/g, ""),
       origem: "web"
     };
 

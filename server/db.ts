@@ -61,8 +61,12 @@ export async function getDb() {
     try {
       const isLocal = process.env.DATABASE_URL.includes("localhost") || process.env.DATABASE_URL.includes("127.0.0.1");
       _client = postgres(process.env.DATABASE_URL, {
-        prepare: false, // Importante para Supabase
+        prepare: false,        // Required for PgBouncer (transaction mode)
         ssl: isLocal ? false : 'require',
+        max: 3,                // Limit connections (PgBouncer free tier = 15)
+        idle_timeout: 20,      // Release idle connections after 20s
+        max_lifetime: 300,     // Force reconnect every 5 min to avoid stale connections
+        connect_timeout: 10,   // Fail fast on connection issues
       });
       _db = drizzle(_client);
     } catch (error) {
@@ -253,7 +257,37 @@ export async function deleteCompany(id: string) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
+  // Delete dependent records one by one (PgBouncer doesn't support multi-statement)
+  const tables = [
+    sql`DELETE FROM api_consultas WHERE "companyId" = ${id}`,
+    sql`DELETE FROM "digitalCertificates" WHERE "companyId" = ${id}`,
+    sql`DELETE FROM procuracoes WHERE "companyId" = ${id}`,
+    sql`DELETE FROM "fiscalProcesses" WHERE "companyId" = ${id}`,
+    sql`DELETE FROM declarations WHERE "companyId" = ${id}`,
+    sql`DELETE FROM execution_logs WHERE company_id = ${id}`,
+    sql`DELETE FROM "ecacMessages" WHERE "companyId" = ${id}`,
+    sql`DELETE FROM "rbt12Sublimits" WHERE "companyId" = ${id}`,
+    sql`DELETE FROM "fiscalReports" WHERE "companyId" = ${id}`,
+    sql`DELETE FROM pendencies WHERE company_id = ${id}`,
+  ];
+
+  for (const query of tables) {
+    try { await db.execute(query); } catch (e) { /* table may not exist */ }
+  }
+
   return await db.delete(companies).where(eq(companies.id, id));
+}
+
+export async function getCompaniesWithoutDocuments() {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  return await db.select({ id: companies.id, name: companies.name })
+    .from(companies)
+    .where(
+      sql`(${companies.cnpj} IS NULL OR ${companies.cnpj} = '' OR ${companies.cnpj} = 'null')
+      AND (${companies.cpf} IS NULL OR ${companies.cpf} = '' OR ${companies.cpf} = 'null')`
+    );
 }
 
 export async function searchCompanies(userId: number, searchTerm?: string, filters?: {
@@ -262,8 +296,6 @@ export async function searchCompanies(userId: number, searchTerm?: string, filte
 }) {
   const db = await getDb();
   if (!db) return [];
-
-  let query = db.select().from(companies).where(eq(companies.userId, userId));
 
   const conditions = [eq(companies.userId, userId)];
 
@@ -284,7 +316,26 @@ export async function searchCompanies(userId: number, searchTerm?: string, filte
     conditions.push(eq(companies.personType, filters.personType as any));
   }
 
-  return await db.select().from(companies).where(and(...conditions)).orderBy(desc(companies.createdAt));
+  // Get companies first
+  const companyList = await db.select().from(companies).where(and(...conditions)).orderBy(desc(companies.createdAt));
+
+  if (companyList.length === 0) return [];
+
+  // Get procuracoes for these companies to show status
+  const companyIds = companyList.map(c => c.id);
+  const activeProcuracoes = await db.select({ companyId: procuracoes.companyId })
+    .from(procuracoes)
+    .where(and(
+      sql`${procuracoes.companyId} IN ${companyIds}`,
+      eq(procuracoes.active, true)
+    ));
+
+  const proxySet = new Set(activeProcuracoes.map(p => p.companyId));
+
+  return companyList.map(c => ({
+    ...c,
+    hasProcuracao: proxySet.has(c.id)
+  }));
 }
 
 // ==================== DIGITAL CERTIFICATE OPERATIONS ====================

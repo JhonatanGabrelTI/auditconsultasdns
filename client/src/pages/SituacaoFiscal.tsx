@@ -119,8 +119,9 @@ export default function SituacaoFiscal() {
       }
     });
 
-    const isRegular = Object.values(results).every((r: any) => r.situacao === "REGULAR" || r.situacao === "SEM PENDÊNCIAS");
-    const hasIrregular = Object.values(results).some((r: any) => r.situacao === "IRREGULAR" || r.situacao === "COM PENDÊNCIAS" || r.situacao === "DÉBITOS ENCONTRADOS");
+    const resultValues = Object.values(results);
+    const isRegular = resultValues.length > 0 && resultValues.every((r: any) => r.situacao === "REGULAR" || r.situacao === "SEM PENDÊNCIAS");
+    const hasIrregular = resultValues.some((r: any) => r.situacao === "IRREGULAR" || r.situacao === "COM PENDÊNCIAS" || r.situacao === "DÉBITOS ENCONTRADOS");
 
     return {
       ...client,

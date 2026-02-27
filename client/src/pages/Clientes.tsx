@@ -563,21 +563,15 @@ export default function Clientes() {
   });
 
   const handleConsultarCNDFederal = (companyId: string) => {
-    if (confirm("Deseja consultar a CND Federal deste cliente?")) {
-      consultarCNDFederal.mutate({ companyId });
-    }
+    consultarCNDFederal.mutate({ companyId });
   };
 
   const handleConsultarCNDEstadual = (companyId: string) => {
-    if (confirm("Deseja consultar a CND Estadual deste cliente?")) {
-      consultarCNDEstadual.mutate({ companyId });
-    }
+    consultarCNDEstadual.mutate({ companyId });
   };
 
   const handleConsultarFGTS = (companyId: string) => {
-    if (confirm("Deseja consultar a Regularidade FGTS deste cliente?")) {
-      consultarFGTS.mutate({ companyId });
-    }
+    consultarFGTS.mutate({ companyId });
   };
 
   const handleOpenCertificateDialog = (client: any) => {
@@ -843,9 +837,15 @@ export default function Clientes() {
                       </div>
                     </TableCell>
                     <TableCell>
-                      <Badge variant="secondary" className="bg-amber-100 text-amber-700 border border-amber-200 hover:bg-amber-200 dark:bg-yellow-950/30 dark:text-yellow-500 dark:border-yellow-900/50">
-                        Aguardando sincronização
-                      </Badge>
+                      {client.hasProcuracao ? (
+                        <Badge variant="secondary" className="bg-emerald-100 text-emerald-700 border border-emerald-200 dark:bg-emerald-950/30 dark:text-emerald-500 dark:border-emerald-900/50">
+                          Integrado
+                        </Badge>
+                      ) : (
+                        <Badge variant="secondary" className="bg-amber-100 text-amber-700 border border-amber-200 hover:bg-amber-200 dark:bg-yellow-950/30 dark:text-yellow-500 dark:border-yellow-900/50">
+                          Aguardando sincronização
+                        </Badge>
+                      )}
                     </TableCell>
                     <TableCell className="font-medium text-foreground">
                       {client.name}
@@ -882,13 +882,13 @@ export default function Clientes() {
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
-                            <DropdownMenuItem onClick={() => handleConsultarCNDFederal(client.id)}>
+                            <DropdownMenuItem onSelect={() => handleConsultarCNDFederal(client.id)}>
                               Consultar CND Federal
                             </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => handleConsultarCNDEstadual(client.id)}>
+                            <DropdownMenuItem onSelect={() => handleConsultarCNDEstadual(client.id)}>
                               Consultar CND Estadual
                             </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => handleConsultarFGTS(client.id)}>
+                            <DropdownMenuItem onSelect={() => handleConsultarFGTS(client.id)}>
                               Consultar FGTS
                             </DropdownMenuItem>
                             <DropdownMenuItem
@@ -976,7 +976,13 @@ export default function Clientes() {
                         <Label className="text-xs text-muted-foreground uppercase">Detalhes técnicos</Label>
                         <div className="p-2 rounded bg-slate-900 border border-slate-800 overflow-x-auto max-h-40">
                           <pre className="text-[10px] font-mono text-slate-400">
-                            {JSON.stringify(JSON.parse(consultaResult.respostaCompleta), null, 2)}
+                            {(() => {
+                              try {
+                                return JSON.stringify(JSON.parse(consultaResult.respostaCompleta), null, 2);
+                              } catch (e) {
+                                return consultaResult.respostaCompleta;
+                              }
+                            })()}
                           </pre>
                         </div>
                       </div>

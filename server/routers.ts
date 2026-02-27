@@ -5,6 +5,20 @@ import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
 import { z } from "zod";
 import * as db from "./db";
 
+// Traduz códigos de erro da API InfoSimples para mensagens amigáveis em PT-BR
+function friendlyApiMessage(code: number, fallbackMsg?: string): string {
+  const messages: Record<number, string> = {
+    600: "Limite de consultas atingido. Aguarde alguns minutos e tente novamente.",
+    604: "Não foi possível acessar o site de origem. Tente novamente mais tarde.",
+    606: "Erro no processamento da consulta. Verifique os dados e tente novamente.",
+    607: "Parâmetro inválido (CNPJ/CPF). Verifique se o documento está correto.",
+    609: "Limite de tentativas da API excedido. Aguarde alguns minutos e tente novamente.",
+    611: "O site da Receita Federal/Caixa está temporariamente fora do ar. Tente mais tarde.",
+    617: "Empresa não cadastrada no órgão consultado ou dados não encontrados.",
+  };
+  return messages[code] || fallbackMsg || `Erro desconhecido (código ${code})`;
+}
+
 export const appRouter = router({
   system: systemRouter,
 
@@ -103,7 +117,15 @@ export const appRouter = router({
           cpf: data.cpf ? data.cpf.replace(/\D/g, "") : undefined,
         };
 
-        return await db.updateCompany(id, sanitizedData);
+        try {
+          return await db.updateCompany(id, sanitizedData);
+        } catch (error: any) {
+          // Handle unique constraint violation on CNPJ
+          if (error.message?.includes('unique') || error.message?.includes('duplicate') || error.code === '23505') {
+            throw new Error("CNPJ já cadastrado para outra empresa. Verifique o número digitado.");
+          }
+          throw new Error(`Erro ao atualizar cliente: ${error.message}`);
+        }
       }),
 
     delete: protectedProcedure
@@ -531,6 +553,10 @@ export const appRouter = router({
       }),
   }),
 
+  // ==================== API ERROR HELPERS ====================
+  // Traduz códigos de erro da API InfoSimples para mensagens amigáveis
+  // Ref: https://infosimples.com/consultas/api/docs#error-codes
+
   // ==================== API CONSULTAS ROUTES ====================
   apiConsultas: router({
     consultarCNDFederal: protectedProcedure
@@ -546,6 +572,21 @@ export const appRouter = router({
         const { consultarCNDFederal, isValidCNPJ, parseBrazilianDate, getIsDev } = await import("./infosimples");
 
         let documento = company.cnpj || company.cpf || "";
+
+        // Validate that the company actually has a document number
+        if (!documento || documento.replace(/\D/g, "").length < 11) {
+          const errMsg = "Empresa não possui CNPJ ou CPF cadastrado. Cadastre o documento antes de consultar.";
+          await db.createApiConsulta({
+            companyId: input.companyId,
+            userId: ctx.user.id,
+            tipoConsulta: "cnd_federal",
+            sucesso: false,
+            mensagemErro: errMsg,
+            situacao: "DADO AUSENTE",
+            respostaCompleta: JSON.stringify({ error: errMsg, documento }),
+          });
+          return { sucesso: false, mensagem: errMsg, situacao: "DADO AUSENTE" };
+        }
 
         // Auto-pad CNPJ se tiver 13 dígitos
         if (company.personType === "juridica" && documento.replace(/\D/g, "").length === 13) {
@@ -572,8 +613,15 @@ export const appRouter = router({
         try {
           // Prioriza certificado da tabela digitalCertificates
           const activeCert = await db.getActiveCertificateForCompany(input.companyId);
-          const certPath = activeCert?.path || company.certificatePath || undefined;
-          const certPass = activeCert?.passwordHash || company.certificatePasswordHash || "Dc4q2T@p9PYQj@2@";
+          let certPath = activeCert?.path || company.certificatePath || undefined;
+          let certPass = activeCert?.passwordHash || company.certificatePasswordHash || undefined;
+
+          // Only use certificate if it looks like real base64 data (not test placeholders)
+          if (certPath && (certPath.length < 100 || certPath === 'test_path')) {
+            console.log(`[CND Federal] Skipping invalid/test certificate data for ${company.name}`);
+            certPath = undefined;
+            certPass = undefined;
+          }
 
           console.log(`[CND Federal] Iniciando consulta para ${documento} (Cert: ${certPath ? 'Sim' : 'Não'})`);
 
@@ -617,7 +665,7 @@ export const appRouter = router({
             dataEmissao: dataEmissao,
             dataValidade: dataValidade,
             siteReceipt: siteReceipt,
-            mensagem: resultado.code_message,
+            mensagem: resultado.code !== 200 ? friendlyApiMessage(resultado.code, resultado.code_message) : undefined,
             respostaCompleta: JSON.stringify(resultado),
           };
         } catch (error: any) {
@@ -663,9 +711,17 @@ export const appRouter = router({
 
         try {
           const activeCert = await db.getActiveCertificateForCompany(input.companyId);
-          const certPath = activeCert?.path || company.certificatePath || undefined;
-          const certPass = activeCert?.passwordHash || company.certificatePasswordHash || "Dc4q2T@p9PYQj@2@";
+          let certPath = activeCert?.path || company.certificatePath || undefined;
+          let certPass = activeCert?.passwordHash || company.certificatePasswordHash || undefined;
 
+          // Only use certificate if it looks like real base64 data
+          if (certPath && (certPath.length < 100 || certPath === 'test_path')) {
+            console.log(`[CND Estadual] Skipping invalid/test certificate data for ${company.name}`);
+            certPath = undefined;
+            certPass = undefined;
+          }
+
+          const uf = company.uf || "PR";
           console.log(`[CND Estadual] Iniciando consulta para ${company.inscricaoEstadual} (${uf})`);
 
           const resultado = await consultarCNDEstadual(
@@ -703,7 +759,7 @@ export const appRouter = router({
             dataEmissao: data?.data_emissao,
             dataValidade: data?.data_validade,
             siteReceipt: siteReceipt,
-            mensagem: resultado.code_message,
+            mensagem: resultado.code !== 200 ? friendlyApiMessage(resultado.code, resultado.code_message) : undefined,
             respostaCompleta: JSON.stringify(resultado),
           };
         } catch (error: any) {
@@ -749,13 +805,25 @@ export const appRouter = router({
 
         try {
           const activeCert = await db.getActiveCertificateForCompany(input.companyId);
-          const certPath = activeCert?.path || company.certificatePath || undefined;
-          const certPass = activeCert?.passwordHash || company.certificatePasswordHash || "Dc4q2T@p9PYQj@2@";
+          let certPath = activeCert?.path || company.certificatePath || undefined;
+          let certPass = activeCert?.passwordHash || company.certificatePasswordHash || undefined;
+
+          // Only use certificate if it looks like real base64 data
+          if (certPath && (certPath.length < 100 || certPath === 'test_path')) {
+            console.log(`[FGTS] Skipping invalid/test certificate data for ${company.name}`);
+            certPath = undefined;
+            certPass = undefined;
+          }
+
+          // Validate CNPJ exists
+          if (!company.cnpj || company.cnpj.replace(/\D/g, "").length < 14) {
+            return { sucesso: false, mensagem: "Empresa não possui CNPJ cadastrado.", situacao: "DADO AUSENTE" };
+          }
 
           console.log(`[Regularidade FGTS] Iniciando consulta para ${company.cnpj}`);
 
           const resultado = await consultarRegularidadeFGTS(
-            company.cnpj || "",
+            company.cnpj,
             certPath,
             certPass
           );
@@ -787,7 +855,7 @@ export const appRouter = router({
             dataEmissao: data?.data_emissao,
             dataValidade: data?.data_validade,
             siteReceipt: siteReceipt,
-            mensagem: resultado.code_message,
+            mensagem: resultado.code !== 200 ? friendlyApiMessage(resultado.code, resultado.code_message) : undefined,
             respostaCompleta: JSON.stringify(resultado),
           };
         } catch (error: any) {

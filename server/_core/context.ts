@@ -16,13 +16,11 @@ export async function createContext(
 
   // Check for development mode FIRST
   const isDev = process.env.NODE_ENV?.trim() === "development";
-  console.log(`[Context] Creating context. isDev=${isDev}, NODE_ENV="${process.env.NODE_ENV}"`);
 
   try {
     user = await sdk.authenticateRequest(opts.req);
   } catch (error) {
     if (isDev) {
-      console.log("[Context] Auth failed in dev mode, using mock user.");
       const mockUser = {
         name: "Dev User",
         email: "dev@example.com",
@@ -55,7 +53,6 @@ export async function createContext(
 
   // Double check: if user is null and we are in dev mode, force mock user (fallback)
   if (!user && isDev) {
-    console.log("[Context] User remains null in dev mode, forcing static mock user.");
     user = {
       id: 1,
       name: "Dev User",
